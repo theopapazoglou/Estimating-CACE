@@ -1,0 +1,1139 @@
+---
+title: "MSc Research Project"
+author: "Theodosios Papazoglou"
+date: "2024-06-15"
+output: pdf_document
+header-includes:
+  - \usepackage{amsmath}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Here we set up all the libraries that we'll be using throughout these simulations.
+```{r libraries}
+library(dplyr)
+library(descr)
+library(estimatr)
+library(Metrics)
+```
+Randomised controlled trials (RCTs) are considered as gold standard for evaluating the effectiveness of an intervention and can establish a causal relationship between the intervention and an improved disease outcome. In RCTs participants are divided into a treatment and a control group, which can either be an existing standard treatment or a placebo. The primary estimand in RCTs is the average treatment effect (ATE) across all participants in the study. However, in real practice RCTs suffer from non-compliance issues, where participants do not comply with their original treatment assignment. The main analysis followed in practice in order to estimate ATE is an Intention-to-Treat (ITT) analysis. The ITT analysis compares the outcomes of participants based on their assignment regardless of the actual receipt of treatment (Sagarin et al. 2014). This way the ITT analysis maintains randomisation and is thus considered a causal effect. However, the ITT estimates treatment effectiveness rather than treatment efficacy (McNamee 2009). When non-compliance is present, researchers are also interested in the treatment effect in compliers, which is usually referred to as the Complier Average Causal Effect (CACE) or the Local Average Treatment Effect (LATE) (Imbens & Angrist 1994 and Angrist, Imbens and Rubin 1996). This is a case of a principal stratum estimand since we are interested in the effect of the treatment in a subset of the study population. It is also a representative measure of treatment efficacy. There are two methods that are usually employed to estimate CACE. The first is the Per-Protocol analysis where participants who do not comply with the study protocol are excluded from the analysis and thus we compare participants who complied in the treatment group against participants who complied in the control group. While this method is preferred because of its simplicity, it does not preserve randomisation and tends to produce biased results. The second method is the Instrumental Variables (IV) analysis which was introduced by Imbens & Angrist (1994) and was extended by Angrist, Imbens and Rubin (1996) as a method to estimate the CACE. In this analysis, treatment assignment is used as an instrument in a two-stage regression procedure. The IV method requires certain assumptions hold which are not always easily testable in practice, however it can provide unbiased estimates for the CACE when compliance is all-or-none (participants either receive the whole treatment or none at all) and the underlying assumptions are satisfied. We will define both methods formally going forward. The main objective of this project is to assess and compare the two methods (Per Protocol and IV) in their ability to estimate the CACE under various non-compliance scenarios that could possibly be observed in real life RCTs. For this various scenarios we will employ multiple simulations.
+In this paper we present how our simulations are defined, coded and executed. The simulation procedures that we adapt are heavily influenced by Bang and Davis (2007) and Ye et al. (2014), but the objective is completely different. In their simulations they assessed how the Per protocol and IV estimators (they also included other estimators) perform relative to the ATE and not the CACE. Let us now describe how the data generating mechanism (DGM) of our simulations will work. We will generate $Y(Z)$ the potential outcomes for participants under treatment assignment, where treatment assignment is binary, i.e. $Z=0$ for control and $Z=1$ for treatment. Treatment assignment is random and balanced (1:1 ratio). An example from one of the simulations that we will perform is generating $Y(0)\sim N(74,1)$, $Y(1)\sim N(69,1)$ and $Z \sim \text{Bernoulli}(0.5)$. Based on that we define the true treatment effect as $\tau=\mathbb{E}(Y(1))-\mathbb{E}(Y(0))=-5$. This corresponds to the true ATE and not CACE. The same DGM was followed in both Bang and Davis (2007) and Ye et al. (2014). Angrist, Imbens and Rubin stratified the participants into four categories based on their potential treatment receipt, $D(Z)$.They defined compliers as participants who would always comply with their treatment assignment, i.e. $D(1)=1$ and $D(0)=0$, always-takers as participants who would always receive the treatment regardless of their treatment assignment, i.e. $D(1)=D(0)=1$, never-takers who would always reject the treatment regardless of their treatment assignment, i.e. $D(1)=D(0)=0$ and defiers who would always do the opposite of their treatment assignment, i.e. $D(1)=0$ and $D(0)=1$. Under the monotonicity assumption, i.e. $D(1)\geq D(0)$, defiers are forbidden. Based on this framework we can have always takers and never takers in both treatment groups. However, their true rates are never observed in practice. Instead we only observe always takers in the control group and never takers in the treatment group. As a result, the true non-compliance rate differs from the observed non-compliance rate. In our simulations, when compliance is defined as "all-or-none", i.e. participants either receive the whole treatment or not, we specify rates for never-takers and always-takers based on the potential treatment receipt framework, i.e. their true underlying behavior. For example, if we specify $40\%$ of participants as never-takers, we specify $40\%$ of participants with $D(1)=D(0)=0,$ rather than $40\%$ of participants with $D=0$ if $Z=1$. This way we can identify the true CACE as defined by Angrist, Imbens and Rubin and subsequently compare the Per Protocol and IV estimates relative to the treatment effect among compliers (principal stratum estimand) rather than the treatment effect across all participants as done in Bang and Davis (2007) and Ye et al. (2014). In summary, we highlight that the treatment effect specified as $\mathbb{E}[Y(1)-Y(0)]$ in the DGM refers to the ATE and differs from the CACE that we wish to estimate, which is defined as  $\mathbb{E}[Y(1)-Y(0)|C=1],$ where $C$ is a binary compliance indicator and we assess the two methods with respect to the latter quantity.
+Let us now describe what we actually observe in real practice. For each individual we observe the treatment assignment, $Z$, and whether they actually received the  treatment or not, $D$. Note that the observed treatment receipt, based on the previous framework, is calculated as $D = ZD(1) + (1-Z)D(0)$. The observed compliers are identified as the participants for whom $Z=D$ and the observed non-compliers as the participants for whom $Z\neq D$; if $Z=1$ and $D=0$ we have a never-taker and if $Z=0$ and $D=1$ we have an always taker. However, it is possible that the observed compliers also include always-takers and never-takers, but we can never observe them. We can only observe never-takers in the treatment group and always-takers in the control group. However, we can estimate their proportions. Denote $\pi_{a}$, $\pi_{n}$ and $\pi_{c}$ the observed proportions of always-takers, never-takers and compliers respectively. We can estimate those as, $$\pi_{a}=\mathbb{E}[D|Z=0],\:\pi_{n}=1-\mathbb{E}[D|Z=1] \: \text{and} \: \pi_{c}=1-\pi_{n}-\pi_{a}.$$ These estimated proportions should match the assumption of never-takers and always-takers that we will make at the beginning of our simulations. 
+Thus far, we have made explicit the difference between true non-compliance (as defined by Angrist, Imbens and Rubin) and observed non-compliance. Furthermore, we have described how we can estimate the proportions of always-takers, never-takers and true compliers based on the observed data. We now shift our focus on the outcomes. 
+We have defined thus far the counterfactual outcomes $Y(Z)$, i.e. a pair of $Y(1)$ and $Y(0)$, the potential outcomes under treatment and control respectively. In practice we can never observe both for an individual and this is why the ATE and CACE are identified in population levels rather than individual levels. The outcome we actually observe is given by, $$Y=DY(1)+(1-D)Y(0).$$ Therefore, for every individual we observe the following three quantities, the treatment assignment ($Z$), the treatment receipt ($D$) and a continuous outcome ($Y$). 
+The most common method to estimate the treatment effect in the subgroup of compliers is the Per Protocol analysis. The Per-Protocol analysis compares participants who complied to the study protocol, i.e. compares participants that complied with the treatment against participants who complied with the control. The Per Protocol estimate is defined as, $\text{PPE}=\bar{Y}_{Z=D=1}-\bar{Y}_{Z=D=0}.$ While simple and easy to interpret the Per-Protocol analysis suffers from selection bias and loses the benefits of randomization. The Per-Protocol analysis thus considers the observed compliers only. Angrist, Imbens and Rubin proposed the Instrumental Variables (IV) estimator as an alternative estimator for the CACE. In this setting, the treatment assignment, $Z$, is used as an instrument and the IV estimator can be derived by a two-stage regression. First, we estimate a linear regression of $D$ on the instrument $Z$ by least squares. Assume that the estimated regression function is, $$\hat{D_i}=\hat{\alpha_0} + \hat{\alpha_1}Z_i.$$ Then we regress the outcome, $Y$, on the predicted value of $D$ using least squares, $$Y_i=\hat{\beta_0} + \hat{\beta_1}\hat{D_i}.$$ Alternatively, with a single instrument we can estimate the two reduced form regressions, $$Y_i=\gamma_0 + \gamma_1 Z_i + \nu_i, :\ \text{and} :\ D_i=\alpha_0 + \alpha_1Z_i + \epsilon_i,$$ by least squares and receive the IV estimator as, $$\hat{\beta}^{IV}=\frac{\hat{\gamma_1}}{\hat{\alpha_1}} \: \: (1)$$ Angirst, Imbens and Rubin showed that the IV estimator is an unbiased estimator of the CACE provided certain assumptions hold (SUTVA, exclusion restriction, monotonicity etc.); at least when compliance is defined as all-or-none. The difficulty with the IV estimator is that the assumptions are not always testable in practice and the interpretation is not straightforward. Regarding the interpretation of the IV estimator in (1), provided the assumptions SUTVA, random assignment, exclusion restriction, non-zero average causal effect of $Z$ on $D$ and monotonicity hold, we can identify the numerator $\hat{\gamma_1}$ as the Intention-to-Treat (ITT) effect estimate of $Z$ on $Y$ and the denominator $\hat{\alpha_1}$ as the estimate of the compliers proportion, $\pi_{c}$. Under the assumptions mentioned before, the IV estimand, $$\beta^{IV}=\frac{\mathbb{E}[Y_i|Z_i=1]-\mathbb{E}[Y_i|Z_i=0]}{\mathbb{E}[D_i|Z_i=1]-\mathbb{E}[D_i|Z_i=0]},$$ is the average causal effect for the compliers, i.e. $$\beta^{IV}=\mathbb{E}[Y(1)-Y(0)|C=1],$$ and hence the IV estimator is an estimator of the CACE. Without the assumptions, the IV estimand is simply the ratio of intention-to-treat estiamands with no interpretation as an average causal effect. 
+In our simulations we will consider two types of compliance, "all-or-none" and partial. We will vary many parameters (type of non-compliance, randomness of non-compliance etc.) for both cases and we will compare the results from the Per-protocol analysis with those from the IV analysis. As described, the IV estimator is expected to yield unbiased estimates of CACE when compliance is "all-or-none", but this is not always true when compliance is partial. Previous simulations that we  studied in the literature have considered the performance of the IV and Per-Protocol estimator as estimators of the ATE. We might provide a short review of these results in the final report but this is not of primary interest. The primary interest is to compare the performance of the methods with respect to the CACE. 
+
+Study adaptation: In the CPAP study 310 patients were needed to detect a lowering effect of 3.23 mmHg in DBP among compliers with $80\%$ power and $5\%$ significance level. This effect was estimated using a Per-Protocol analysis. We chose to simulate 350 participants in each hypothetical trial. The standard deviation of the treatment effect was estimated to be 1.24 from the CPAP trial. Based on this estimate, at least 227 simulations were needed to produce an effect estimate of $5\%$ accuracy by the standard formula in Barton et al. (2006). To have sufficient power, we chose to generate 500 simulations for each case. We present the calculations below.
+The mean DBP in compliers in the treatment group was estimated as $69.28$ with a standard error of $1.08$. The mean DBP in complier in the control group was estimated as $72.50$ with a standard error of $0.61$. Of the 310 patients, 153 were assigned treatment and 157 were assigned control. Only 50 participants in the treatment group complied while 155 participants in the control group complied. We estimated their standard deviations as, $$\sigma_T=\text{SE}_T\times\sqrt{50}=7.635 \: \: \text{and} \: \: \sigma_C=\text{SE}_C\times\sqrt{155}=7.64.$$ We calculate the standard deviation of the treatment effect among compliers as, $$\sigma=\sqrt{\frac{\sigma_T^2}{50}+\frac{\sigma_C^2}{155}}\approx 1.24.$$ From Barton et al. (2006), the formula for calculating the number of simulations required for a specified level of accuracy $\delta$ is, $$B=\left(\frac{z_{1-(a/2)}\sigma}{\delta}\right)^2,$$ where $z_{1-(a/2)}$ is the $1-(a/2)$ quantile of the normal distribution. Thus for a $5\%$ level of accuracy in the estimate of interest we require $$B=\left(\frac{1.96\times1.24}{0.05\times3.23}\right)^2=227$$ simulations. As mentioned we decide to implement 500 simulations. 
+
+We begin with the "All-or-None" compliance case. 350 participants are randomized in 1:1 ratio to either treatment or control. Non-Compliance in Tantrakul et al. (2023) is defined as less than 4h/d of CPAP. So, in this scenario we assume that participants either took all of CPAP available or none at all. 
+We start only with Never-Takers and random non-compliance. For the observed non-compliance in this case, we can only observe non-compliers in the treatment group, i.e. those that were assigned treatment but didn't recceive it, i.e. if $Z=1$ then $D=0$ for the observed never-takers. On the other hand, all participants in the control group would adhere to their assigned treatment as we don't allow them to receive the treatment under any condition, thus all participants in the control group are considered compliers, i.e. if $Z=0$ then $D=0$. Thus, we cannot have never-takers in the control group based on the observed data. However, in the potential outcomes setting (true non-compliance) it is possible to have never-takers in the control group if they would never receive treatment regardless of their treatment assigment, i.e. $D(1)=D(0)=0$. This is only possible with the true unobserved data. Based on this, we know that the observed non-compliance rate (for the whole population) will never be above 50% since everyone in the control group will always be considered a complier; note that in the treatment group the non-compliance rate can be greater than 50% (this is the case in Tantrakul et al. (2023) where non-compliance in the treatment group was reported approximately $70\%$). In the simulations below we specify a percentage for non-compliers (p_noncompliers) and the remaining participants are considered compliers, i.e. percentage of compliers = 1 - p_noncompliers. The proportion refers to the true non-compliance under the potential outcomes setting for the whole population which in this case refers to the proportion of never-takers only. Consider as an example that p_noncompliers = 0.4. This means that if we knew the potential treatment receipt of all individuals under both arms, we'd have 40% of never-takers in the trial in both arms. However, in practice, we can only observe non-compliers (never-takers) in the treatment group. Thus the observed non-compliance will be the proportion of  never-takers (40%) that were assigned to treatment, which should be approximately half of that since we randomly select the never-takers in a balanced treatment allocation setting. 
+
+We will describe now what happens on the \textit{simfun} function. First we generate the potential outcomes for all 350 participants if they were assigned to control or treatment respectively. We have, $Y(0)\sim N(74,1)$ and $Y(1)\sim N(69,1)$ for a moderate effect of CPAP in DBP (the true ATE is defined as $-5$) and then we assign each patient to either control or treatment using a Bernoulli distribution with $p=0.5$. We stratify the study population into two categories. Category 1 corresponds to true never-takers and category 2 to true compliers. We sample  $350\times$\textit{p\_noncompliers} noncompliers from the total study population as non-compliers (never-takers in this case). Since we allow only never-takers we define for all participants in the study $D(0)=0$, i.e. if they were not assigned treatment, they would never take it. For participants in category 1 (never-takers) we define $D(1)=0$, i.e. if they were assigned treatment, they would never take it. For the remaining participants (compliers), we define $D(1)=1$, i.e. if they were assigned treatment, they would receive it. Then we define the observed treatment receipt, $D=ZD(1)+(1-Z)D(0)$, and the observed outcome, $Y=DY(1)+(1-D)Y(0)$ for every participant. We also define the proportion of observed non-compliers, participants with $Z\neq D$, and the estimated never-taker frequency $\pi_{n}=1-\mathbb{E}[D|Z=1]$, which should match the proportion of non-compliers we have defined, \textit{p\_noncompliers}. We then define define the subset of true compliers (\textit{compliers}), the subset of observed compliers in the treatment group (\textit{treat\_prot}) and the subset of observed compliers in the control group (\textit{control\_prot}). The true treatment effect among compliers is defined as $\mathbb{E}[Y(1)-Y(0)|C=1]$ (\textit{true}). We then calculate the Per-protocol estimate as the difference in means in the two subsets of observed compliers (\textit{PPE}) and define the standard error, the mean squared error (MSE) and confidence bounds of the estimate. We do the same for the IV estimate (\textit{IV}), where we use the \textit{iv\_robust} function from the \textit{estimatr} library. We run 500 simulations and obtain the Monte-Carlo estimates. 
+
+```{r nevertakers1}
+simfun <- function(i, n = 350, prob = 0.5, p_noncompliers = 0.4, mean0 = 74, mean1 = 69, sd = 1){
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  Category <- c(rep(1, round(p_noncompliers * n)), rep(2, n - round(p_noncompliers * n)))
+  dt$Category <- sample(Category, n)
+  dt$D0 <- 0
+  dt$D1 <- ifelse(dt$Category == 2, 1, 0) #Category 1 corresponds to never-takers and 2 to compliers
+  dt$D <- ifelse(dt$Z == 1, dt$D1, dt$D0)
+  dt$Y <- ifelse(dt$D == 1, dt$Y1, dt$Y0)
+  obs_non_compl <- length(which(dt$D != dt$Z))/350
+  est_never_taker_freq <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/nrow(dt %>% filter(Z == 1))
+  dt$Compliance <- factor(dt$Category, labels = c("NT", "CO"))
+  compliers <- dt %>% filter(Compliance == "CO") #defines the subgroup of true compliers
+  treat_prot <- dt %>% filter(Z == 1) %>% filter(D == 1) #defines observed compliers in the treatment group
+  control_prot <- dt %>% filter(Z == 0) %>% filter(D == 0) #defines observed compliers in the control group
+  truth <- mean(compliers$Y1) - mean(compliers$Y0) #true mean difference among compliers
+  PPE <- mean(treat_prot$Y) - mean(control_prot$Y) #per-protocol effect estimate
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(treat_prot$Y)^2/nrow(treat_prot)) + (sd(control_prot$Y)^2/nrow(control_prot)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  fit_IV <- iv_robust(Y ~ D | Z, data = dt)
+  IV <- coef(fit_IV)[2] #Instrumental Variable estimator
+  MSE_IV <- mse(truth,IV)
+  IV_low <- fit_IV$conf.low[2]
+  IV_high <- fit_IV$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  out <- data.frame(
+    i = i,
+    est_never_taker_freq,
+    obs_non_compl <- obs_non_compl,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+}
+
+
+set.seed(123)
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 10, nrow = nsim))
+x <- c("simulation","est_never_taker_freq","obs_non_compl","true_effect","PPE","MSE_PPE","PPE_coverage","IV",
+       "MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+est_never_taker_freq <- mean(estimates$est_never_taker_freq)
+observed_non_compliance <- mean(estimates$obs_non_compl)
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("Estimated never taker frequency:", round(est_never_taker_freq,2), "\n")
+cat("Observed non-compliance frequency:", round(observed_non_compliance,2), "\n")
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+Results: In the case of all-or-none random non-compliance where only never takers are allowed, both the Per-Protocol and the IV methods provide unbiased estimates of the CACE. Also, the MSE values are very small indicating high accuracy. The very high values for the coverage of both methods is maybe something to examine further. We should note however that the IV method results in wider confidence intervals.
+
+
+
+
+We continue in the case where we only allow never-takers, i.e. participants in the control group have no access to the active treatment. We will now move to the case where non-compliance depends on the potential outcomes under no treatment. We will employ first the following condition. Patients with good conditions (low DBP) would always reject the treatment, where we define good conditions as individuals with: $Y(0) < \mu_0 - \delta$, where we will use different values of $\delta$ depending on how strong we want the non-ignorability to be. However, note that the never-takers will not consist only from participants with this condition. The condition imposed will be added to the prior non-compliance percentage set, thus we will have additional non-compliers (never-takers) based on the condition employed. 
+
+The implementation in code works similarly to before. We generate the potential outcomes, treatment assignment and randomly select a subset of participants to be never-takers ($D(1)=D(0)=0$). We defined above that participants with $Y(0) < \mu_0 - \delta$ would always reject the treatment. That means that for participants satisfying this condition we define $D(1)=0$ and $D(0)=0$. So, additionally to the never-takers we defined randomly we have now added those that satisfy $Y(0) < \mu_0 - \delta$ regardless if they were originally compliers or never-takers. Since this will probably create a lot of never-takers, we will vary the original proportion of never-takers selected at random. The definition of the observed treatment receipts and outcomes remain unchanged. Again, we will provide the proportions of true never takers (it will be greater than the \textit{p\_noncompliers} we set), of observed never-takers ($Z\neq D$) and the estimated proportion of never-takers using the observed data as before. The latter should be equal to the proportion of true never takers that we calculate first. The Per-Protocol and IV analyses are identical to the previous implementation.
+
+```{r nevertakers2}
+simfun <- function(i, n = 350, prob = 0.5, p_noncompliers = 0.4, mean0 = 74, mean1 = 69, sd = 1){
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  Category <- c(rep(1, round(p_noncompliers * n)), rep(2, n - round(p_noncompliers * n)))
+  dt$Category <- sample(Category, n)
+  dt$D0 <- 0
+  dt$D1 <- ifelse(dt$Category == 2, 1, 0)
+  dt$D1 <- ifelse(dt$Y0 < mean0 - 0.5, 0, dt$D1)
+  dt$Category <- ifelse(dt$Y0 < mean0 - 0.5, 1, dt$Category)
+  dt$D <- ifelse(dt$Z == 1, dt$D1, dt$D0)
+  dt$Y <- ifelse(dt$D == 1, dt$Y1, dt$Y0)
+  dt$Compliance <- factor(dt$Category, labels = c("NT", "CO"))
+  true_never_takers <- nrow(dt %>% filter(Compliance == "NT"))/n #true never takers
+  true_compliers <- nrow(dt %>% filter(Compliance == "CO"))/n #true compliers
+  obs_non_compl <- length(which(dt$D != dt$Z))/n #observed non-compliers 
+  est_never_taker_freq <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/nrow(dt %>% filter(Z == 1))
+  compliers <- dt %>% filter(Compliance == "CO") #defines the subgroup of true compliers 
+  treat_prot <- dt %>% filter(Z == 1) %>% filter(D == 1) #defines the observed compliers in the treatment group
+  control_prot <- dt %>% filter(Z == 0) %>% filter(D == 0) #defines the observed compliers in the control group
+  truth <- mean(compliers$Y1) - mean(compliers$Y0) #true mean difference among compliers
+  PPE <- mean(treat_prot$Y) - mean(control_prot$Y) #per-protocol estimate
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(treat_prot$Y)^2/nrow(treat_prot)) + (sd(control_prot$Y)^2/nrow(control_prot)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  fit_IV <- iv_robust(Y ~ D | Z, data = dt)
+  IV <- coef(fit_IV)[2] #IV estimate
+  MSE_IV <- mse(truth,IV)
+  IV_low <- fit_IV$conf.low[2]
+  IV_high <- fit_IV$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  out <- data.frame(
+    i = i,
+    true_never_takers <- true_never_takers,
+    true_compliers <- true_compliers,
+    obs_non_compl <- obs_non_compl,
+    est_never_taker_freq <- est_never_taker_freq,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+}
+
+
+set.seed(24)
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 14, nrow = nsim))
+x <- c("simulation","true_never_takers","true_compliers","obs_non_compl",
+         "est_never_taker_freq","true_effect","PPE","MSE_PPE","PPE_coverage","IV","MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+true_never_takers <- mean(estimates$true_never_takers)
+true_compliers <- mean(estimates$true_compliers)
+est_never_taker_freq <- mean(estimates$est_never_taker_freq)
+observed_non_compliance <- mean(estimates$obs_non_compl)
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True never taker frequency:", round(true_never_takers,2), "\n")
+cat("True complier frequency:", round(true_compliers,2), "\n")
+cat("Estimated never taker frequency:", round(est_never_taker_freq,2), "\n")
+cat("Observed non-compliance frequency:", round(observed_non_compliance,2), "\n")
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+Results: The IV estimator accurately estimates the CACE, i.e. it is an unbiased estimator of the CACE. The Per-Protocol estimate is biased towards the CACE, but it is unbiased towards the ATE. The observed never-takers proportion is approximately $30\%$ while the true proportion is twice the observed. 
+
+
+
+Next we use a different dependent noncompliance condition. Participants with bad conditions (high DBP) would always reject the treatment, where bad condition is defined as $Y(0) > \mu_0 + \delta$. The procedure is identical to the previous one with the only change being the condition. We discuss the results directly.
+```{r nevertakers3}
+simfun <- function(i, n = 350, prob = 0.5, p_noncompliers = 0.4, mean0 = 74, mean1 = 69, sd = 1){
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  Category <- c(rep(1, round(p_noncompliers * n)), rep(2, n - round(p_noncompliers * n)))
+  dt$Category <- sample(Category, n)
+  dt$D0 <- 0
+  dt$D1 <- ifelse(dt$Category == 2, 1, 0)
+  dt$D1 <- ifelse(dt$Y0 > mean0 + 0.5, 0, dt$D1)
+  dt$Category <- ifelse(dt$Y0 > mean0 + 0.5, 1, dt$Category)
+  dt$D <- ifelse(dt$Z == 1, dt$D1, dt$D0)
+  dt$Y <- ifelse(dt$D == 1, dt$Y1, dt$Y0)
+  dt$Compliance <- factor(dt$Category, labels = c("NT", "CO"))
+  true_never_takers <- nrow(dt %>% filter(Compliance == "NT"))/n #true never takers
+  true_compliers <- nrow(dt %>% filter(Compliance == "CO"))/n #true compliers
+  obs_non_compl <- length(which(dt$D != dt$Z))/n #observed non-compliers
+  est_never_taker_freq <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/nrow(dt %>% filter(Z == 1))
+  compliers <- dt %>% filter(Compliance == "CO") #defines the subgroup of true compliers 
+  treat_prot <- dt %>% filter(Z == 1) %>% filter(D == 1) #defines the observed compliers in the treatment group
+  control_prot <- dt %>% filter(Z == 0) %>% filter(D == 0) #defines the observed compliers in the control group
+  truth <- mean(compliers$Y1) - mean(compliers$Y0) #true mean difference among compliers
+  PPE <- mean(treat_prot$Y) - mean(control_prot$Y) #per-protocol estimate
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(treat_prot$Y)^2/nrow(treat_prot)) + (sd(control_prot$Y)^2/nrow(control_prot)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  fit_IV <- iv_robust(Y ~ D | Z, data = dt)
+  IV <- coef(fit_IV)[2] #IV estimate
+  MSE_IV <- mse(truth,IV)
+  IV_low <- fit_IV$conf.low[2]
+  IV_high <- fit_IV$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  out <- data.frame(
+    i = i,
+    true_never_takers <- true_never_takers,
+    true_compliers <- true_compliers,
+    obs_non_compl <- obs_non_compl,
+    est_never_taker_freq <- est_never_taker_freq,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+}
+
+
+set.seed(24)
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 12, nrow = nsim))
+x <- c("simulation","true_never_takers","true_compliers","obs_non_compl",
+       "est_never_taker_freq","true_effect","PPE","MSE_PPE","PPE_coverage","IV","MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+true_never_takers <- mean(estimates$true_never_takers)
+true_compliers <- mean(estimates$true_compliers)
+est_never_taker_freq <- mean(estimates$est_never_taker_freq)
+observed_non_compliance <- mean(estimates$obs_non_compl)
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True never taker frequency:", round(true_never_takers,2), "\n")
+cat("True complier frequency:", round(true_compliers,2), "\n")
+cat("Estimated never taker frequency:", round(est_never_taker_freq,2), "\n")
+cat("Observed non-compliance frequency:", round(observed_non_compliance,2), "\n")
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+Results: Conclusions are similar to the previous implementation. The IV estimator is an unbiased estimator of CACE, while the Per-Protocol estimator is biased towards the CACE but unbiased towards the ATE.
+
+This concludes the cases where we only allow Never-Takers.
+TODO: Test for different rates of Never-Takers and for zero treatment effect.
+
+
+Now we move on to the case where non-compliers can either be never-takers or always-takers. Never takers will always reject the treatment regardless of their assignment ($D(1)=D(0)=0$) and always takers will always receive the treatment regardless of their assignment ($D(1)=D(0)=1$). For the observed non-compliance in this case, we can observe non-compliers in both treatment groups, i.e. those that were assigned treatment but didn't receive it ($Z=1$, $D=0$) and those who were assigned to control and received the treatment ($Z=0$, $D=1$). The former belong in the category of never-takers and the latter in the category of always-takers, since in both cases we have assumed that there are no defiers (monotonicity). However, the true non-compliance might differ from the observed. Participants who were assigned and received treatment could be either compliers or always takers, while participants who were not assigned and didn't receive treatment could be either compliers or never takers. However, this information is not accessible from the observed data. From the observed data we would consider these individuals as compliers. We can estimate however the proportions of true never takers and always takers from the observed data. For the never takers we have, $\pi_{n}=1-\mathbb{E}[D|Z=1]$ and for the always takers we have, $\pi_{a}=\mathbb{E}[D|Z=0]$. Again, we simulate $D(1)$ and $D(0)$ values as before in order to have a clear stratification of the true compliance status of the participants as described by Angrist, Imbens and Rubin.
+
+
+
+We start with the random noncompliance case again. We will try many different scenarios by varying the percentages of never takers and always takers. However, we should note that non-compliance rarely occurs randomly in practice and is most likely associated with participants characteristics or potential outcomes under treatment or not. We will have scenarios where the rates of always takers and never takers are the same (e.g. p_nevertakers = 0.2 and p_alwaystakers = 0.2 thus p_compliers = 0.6) and situations where the rate of never-takers is greater (e.g. p_nevertakers = 0.4 and p_alwaystakers = 0.2 thus p_compliers = 0.4), since it is more common in real practice to have more nevertakers than alwaystakers. 
+The structure of the coded function \textit{simfun} is similar to the one where we only allowed never takers with the necessary modifications to include always takers. In particular, the potential outcomes and treatment assignment work exactly as before. Here, category 1 corresponds to never takers, category 2 to always takers and finally category 3 to compliers. We sample $350\times$\textit{p\_nevertakers} participants as never takers and $350\times$\textit{p\_alwaystakers} participants as always takers. We define $D(0)=0$ for never takers and compliers and $D(0)=1$ for always takers. We define $D(1)=0$ for never takers and $D(1)=1$ for always takers and compliers. The observed treatment receipt, $D$, and the observed outcomes, $Y$, are defined exactly as before. This function will return the proportion of observed never takers ($Z=1$, $D=0$) and always takers ($Z=0$, $D=1$) and the estimated proportions of true never takers ($\pi_{n}=1-\mathbb{E}[D|Z=1]$) and always takers ($\pi_{a}=\mathbb{E}[D|Z=0]$), which should match the proportions we set at the beginning of the simulation. We calculate the Per-Protocol and IV estimates and the other measures exactly as before.
+
+```{r alwaystakers1}
+simfun <- function(i, n = 350, prob = 0.5, p_nevertakers = 0.4, p_alwaystakers = 0.2, mean0 = 74, mean1 = 69, sd = 1){
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  Category <- c(rep(1, round(p_nevertakers * n)), rep(2, round(p_alwaystakers * n)), 
+                rep(3, n - round(p_nevertakers * n) - round(p_alwaystakers * n)))
+  dt$Category <- sample(Category, n)
+  dt$D0 <- ifelse(dt$Category == 2, 1, 0) 
+  dt$D1 <- ifelse(dt$Category == 3 | dt$Category == 2, 1, 0)
+  dt$D <- ifelse(dt$Z == 1, dt$D1, dt$D0)
+  dt$Y <- ifelse(dt$D == 1, dt$Y1, dt$Y0)
+  obs_non_compl <- length(which(dt$D != dt$Z))/n #observed non-compliers (observed never-takers and always-takers)
+  obs_always_takers <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/n #observed always takers 
+  obs_never_takers <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/n #observed never takers
+  est_never_taker_freq <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/nrow(dt %>% filter(Z == 1))
+  est_always_taker_freq <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/nrow(dt %>% filter(Z == 0))
+  dt$Compliance <- factor(dt$Category, labels = c("NT", "AT", "CO"))
+  compliers <- dt %>% filter(Compliance == "CO") #defines the subgroup of true compliers 
+  treat_prot <- dt %>% filter(Z == 1) %>% filter(D == 1) #defines the observed compliers in the treatment group
+  control_prot <- dt %>% filter(Z == 0) %>% filter(D == 0) #defines the observed compliers in the control group
+  truth <- mean(compliers$Y1) - mean(compliers$Y0) #true mean difference among compliers
+  PPE <- mean(treat_prot$Y) - mean(control_prot$Y) #per-protocol  estimate
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(treat_prot$Y)^2/nrow(treat_prot)) + (sd(control_prot$Y)^2/nrow(control_prot)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  fit_IV <- iv_robust(Y ~ D | Z, data = dt)
+  IV <- coef(fit_IV)[2] #IV estimate
+  MSE_IV <- mse(truth,IV)
+  IV_low <- fit_IV$conf.low[2]
+  IV_high <- fit_IV$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  out <- data.frame(
+    i = i,
+    obs_non_compl <- obs_non_compl,
+    obs_always_takers <- obs_always_takers,
+    obs_never_takers <- obs_never_takers,
+    est_never_taker_freq <- est_never_taker_freq,
+    est_always_taker_freq <- est_always_taker_freq,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+}
+
+
+set.seed(123)
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 13, nrow = nsim))
+x <- c("simulation","obs_non_compl","obs_always_takers","obs_never_takers","est_never_taker_freq","est_always_taker_freq",
+       "true_effect","PPE","MSE_PPE","PPE_coverage","IV","MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+obs_always_takers <- mean(estimates$obs_always_takers)
+obs_never_takers <- mean(estimates$obs_never_takers)
+est_never_taker_freq <- mean(estimates$est_never_taker_freq)
+est_always_taker_freq <- mean(estimates$est_always_taker_freq)
+observed_non_compliance <- mean(estimates$obs_non_compl)
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("Estimated never taker frequency:", round(est_never_taker_freq,2), "\n")
+cat("Estimated always taker frequency:", round(est_always_taker_freq,2), "\n")
+cat("Observed non-compliance frequency:", round(observed_non_compliance,2), "\n")
+cat("Observed never taker frequency:", round(obs_never_takers,2), "\n")
+cat("Observed always taker frequency:", round(obs_always_takers,2), "\n")
+cat("True effect:", round(truth, 2), "\n")
+cat("PP effect:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV effect:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+Results: When noncompliance is random and we allow for both never takers and always takers, the observed never takers and always takers proportions are half of their true respective values. Furthermore, both the Per-Protocol and the IV estimators are unbiased towards the CACE. 
+
+
+
+We now move to dependent non-compliance. We will again first randomly select some never takers and some always takers, similar to the procedure we followed where we only allowed never takers. Then we will impose the 6 dependent non-compliance scenarios as presented in Ye et al. 2014. The non-compliance rates will be very big in this case, since not only we define true non-compliers from the beginning but we impose additional conditions to some who were originally set as true compliers that end up as either never-takers or always-taker. 
+We define as good condition if $Y(0)< \mu_0 - \delta$, i.e. DBP is low and as bad condition the case where $Y(0) > \mu_0 + \delta$. The six dependent scenarios we will implement are defined as:
+\begin{enumerate}
+ \item Scenario A: Those with good conditions would always get the treatment, i.e. if $Y(0)< \mu_0 - \delta$ then $D(1)=D(0)=1$,
+ \item Scenario B: Those with bad conditions would always get the treatment, i.e. if $Y(0)> \mu_0 + \delta$ then $D(1)=D(0)=1$,
+ \item Scenario C: Those with bad conditions would never get the treatment, i.e. if $Y(0)> \mu_0 + \delta$ then $D(1)=D(0)=0$,
+ \item Scenario D: Those with good conditions would never get the treatment, i.e. if $Y(0)< \mu_0 - \delta$ then $D(1)=D(0)=0$,
+ \item Scenario E: Those with good conditions would always get the treatment and those with bad conditions would never get the treatment, i.e. if $Y(0)< \mu_0 - \delta$ then $D(1)=D(0)=1$ and $Y(0)> \mu_0 + \delta$ then $D(1)=D(0)=0$,
+ \item Scenario F: Those with good conditions would never get the treatment and those with bad conditions would always get the treatment, i.e. if $Y(0)< \mu_0 - \delta$ then $D(1)=D(0)=0$ and $Y(0)> \mu_0 + \delta$ then $D(1)=D(0)=1$.
+\end{enumerate}
+
+Scenario A:  Those with good conditions (low DBP) would always get the treatment.
+We will randomly select some individuals as never-takers and always-takers. Then, based on the condition above we will include additional always takers. We will assume smaller proportions for never takers and always takers to begin with.
+```{r alwaystakers2}
+simfun <- function(i, n = 350, prob = 0.5, p_nevertakers = 0.2, p_alwaystakers = 0.1, mean0 = 74, mean1 = 69, sd = 1){
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  Category <- c(rep(1, round(p_nevertakers * n)), rep(2, round(p_alwaystakers * n)), 
+                rep(3, n - round(p_nevertakers * n) - round(p_alwaystakers * n)))
+  dt$Category <- sample(Category, n)
+  dt$D0 <- ifelse(dt$Category == 2, 1, 0) 
+  dt$D1 <- ifelse(dt$Category == 3 | dt$Category == 2, 1, 0)
+  dt$D0 <- ifelse(dt$Y0 < mean0 - 0.5, 1, dt$D0)
+  dt$D1 <- ifelse(dt$Y0 < mean0 - 0.5, 1, dt$D1)
+  dt$Category <- ifelse(dt$Y0 < mean0 - 0.5, 2, dt$Category)
+  dt$D <- ifelse(dt$Z == 1, dt$D1, dt$D0)
+  dt$Y <- ifelse(dt$D == 1, dt$Y1, dt$Y0)
+  dt$Compliance <- factor(dt$Category, labels = c("NT", "AT", "CO"))
+  true_always_takers <- nrow(dt %>% filter(Compliance == "AT"))/n #true always takers
+  true_never_takers <- nrow(dt %>% filter(Compliance == "NT"))/n #true never takers
+  true_compliers <- nrow(dt %>% filter(Compliance == "CO"))/n #true compliers
+  obs_non_compl <- length(which(dt$D != dt$Z))/n #observed non-compliers (observed never-takers and always-takers)
+  obs_always_takers <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/n #observed always takers 
+  obs_never_takers <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/n #observed never takers
+  est_never_taker_freq <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/nrow(dt %>% filter(Z == 1))
+  est_always_taker_freq <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/nrow(dt %>% filter(Z == 0))
+  compliers <- dt %>% filter(Compliance == "CO") #defines the subgroup of true compliers
+  treat_prot <- dt %>% filter(Z == 1) %>% filter(D == 1) #defines the observed compliers in the treatment group
+  control_prot <- dt %>% filter(Z == 0) %>% filter(D == 0) #defines the observed compliers in the control group
+  truth <- mean(compliers$Y1) - mean(compliers$Y0) #true treatment effect in compliers
+  PPE <- mean(treat_prot$Y) - mean(control_prot$Y) #per-protocol  estimate
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(treat_prot$Y)^2/nrow(treat_prot)) + (sd(control_prot$Y)^2/nrow(control_prot)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  fit_IV <- iv_robust(Y ~ D | Z, data = dt)
+  IV <- coef(fit_IV)[2] #IV estimate
+  MSE_IV <- mse(truth,IV)
+  IV_low <- fit_IV$conf.low[2]
+  IV_high <- fit_IV$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  out <- data.frame(
+    i = i,
+    true_always_takers <- true_always_takers,
+    true_never_takers <- true_never_takers,
+    true_compliers <- true_compliers,
+    obs_non_compl <- obs_non_compl,
+    obs_always_takers <- obs_always_takers,
+    obs_never_takers <- obs_never_takers,
+    est_never_taker_freq <- est_never_taker_freq,
+    est_always_taker_freq <- est_always_taker_freq,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+}
+
+
+set.seed(123)
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 16, nrow = nsim))
+x <- c("simulation","true_always_takers","true_never_takers","true_compliers","obs_non_compl","obs_always_takers",
+       "obs_never_takers","est_never_taker_freq","est_always_taker_freq","true_effect","PPE","MSE_PPE","PPE_coverage","IV",
+       "MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+true_always_takers <- mean(estimates$true_always_takers)
+true_never_takers <- mean(estimates$true_never_takers)
+true_compliers <- mean(estimates$true_compliers)
+obs_always_takers <- mean(estimates$obs_always_takers)
+obs_never_takers <- mean(estimates$obs_never_takers)
+est_never_taker_freq <- mean(estimates$est_never_taker_freq)
+est_always_taker_freq <- mean(estimates$est_always_taker_freq)
+observed_non_compliance <- mean(estimates$obs_non_compl)
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True never taker frequency:", round(true_never_takers,2), "\n")
+cat("True always taker frequency:", round(true_always_takers,2), "\n")
+cat("True complier frequency:", round(true_compliers,2), "\n")
+cat("Estimated never taker frequency:", round(est_never_taker_freq,2), "\n")
+cat("Estimated always taker frequency:", round(est_always_taker_freq,2), "\n")
+cat("Observed non-compliance frequency:", round(observed_non_compliance,2), "\n")
+cat("Observed never taker frequency:", round(obs_never_takers,2), "\n")
+cat("Observed always taker frequency:", round(obs_always_takers,2), "\n")
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+Results: When participants with good conditions would always get the treatment, both the Per-Protocol and the IV estimators provide unbiased estimated for the CACE. The observed proportion of never takers was $7\%$ and for the always takers approximately $20\%$. The true non-compliance proportion was almost $50\%$.
+
+
+
+Scenario B: Those with bad conditions (high DBP) would always get the treatment.
+We will randomly select some individuals as never-takers and always-takers. Then, based on the other condition we will include additional always takers. 
+```{r alwaystakers3}
+simfun <- function(i, n = 350, prob = 0.5, p_nevertakers = 0.2, p_alwaystakers = 0.1, mean0 = 74, mean1 = 69, sd = 1){
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  Category <- c(rep(1, round(p_nevertakers * n)), rep(2, round(p_alwaystakers * n)), 
+                rep(3, n - round(p_nevertakers * n) - round(p_alwaystakers * n)))
+  dt$Category <- sample(Category, n)
+  dt$D0 <- ifelse(dt$Category == 2, 1, 0) 
+  dt$D1 <- ifelse(dt$Category == 3 | dt$Category == 2, 1, 0)
+  dt$D0 <- ifelse(dt$Y0 > mean0 + 0.5, 1, dt$D0)
+  dt$D1 <- ifelse(dt$Y0 > mean0 + 0.5, 1, dt$D1)
+  dt$Category <- ifelse(dt$Y0 > mean0 + 0.5, 2, dt$Category)
+  dt$D <- ifelse(dt$Z == 1, dt$D1, dt$D0)
+  dt$Y <- ifelse(dt$D == 1, dt$Y1, dt$Y0)
+  dt$Compliance <- factor(dt$Category, labels = c("NT", "AT", "CO"))
+  true_always_takers <- nrow(dt %>% filter(Compliance == "AT"))/n #true always takers
+  true_never_takers <- nrow(dt %>% filter(Compliance == "NT"))/n #true never takers
+  true_compliers <- nrow(dt %>% filter(Compliance == "CO"))/n #true compliers
+  obs_non_compl <- length(which(dt$D != dt$Z))/n #observed non-compliers (observed never-takers and always-takers)
+  obs_always_takers <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/n #observed always takers 
+  obs_never_takers <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/n #observed never takers
+  est_never_taker_freq <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/nrow(dt %>% filter(Z == 1))
+  est_always_taker_freq <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/nrow(dt %>% filter(Z == 0))
+  compliers <- dt %>% filter(Compliance == "CO") #defines the subgroup of true compliers 
+  treat_prot <- dt %>% filter(Z == 1) %>% filter(D == 1) #defines the observed compliers in the treatment group
+  control_prot <- dt %>% filter(Z == 0) %>% filter(D == 0) #defines the observed compliers in the control group
+  truth <- mean(compliers$Y1) - mean(compliers$Y0) #true treatment effect in compliers
+  PPE <- mean(treat_prot$Y) - mean(control_prot$Y) #per-protocol estimate
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(treat_prot$Y)^2/nrow(treat_prot)) + (sd(control_prot$Y)^2/nrow(control_prot)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  fit_IV <- iv_robust(Y ~ D | Z, data = dt)
+  IV <- coef(fit_IV)[2] #IV estimate
+  MSE_IV <- mse(truth,IV)
+  IV_low <- fit_IV$conf.low[2]
+  IV_high <- fit_IV$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  out <- data.frame(
+    i = i,
+    true_always_takers <- true_always_takers,
+    true_never_takers <- true_never_takers,
+    true_compliers <- true_compliers,
+    obs_non_compl <- obs_non_compl,
+    obs_always_takers <- obs_always_takers,
+    obs_never_takers <- obs_never_takers,
+    est_never_taker_freq <- est_never_taker_freq,
+    est_always_taker_freq <- est_always_taker_freq,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+}
+
+
+set.seed(123)
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 16, nrow = nsim))
+x <- c("simulation","true_always_takers","true_never_takers","true_compliers","obs_non_compl","obs_always_takers",
+       "obs_never_takers","est_never_taker_freq","est_always_taker_freq","true_effect","PPE","MSE_PPE","PPE_coverage","IV",
+       "MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+true_always_takers <- mean(estimates$true_always_takers)
+true_never_takers <- mean(estimates$true_never_takers)
+true_compliers <- mean(estimates$true_compliers)
+obs_always_takers <- mean(estimates$obs_always_takers)
+obs_never_takers <- mean(estimates$obs_never_takers)
+est_never_taker_freq <- mean(estimates$est_never_taker_freq)
+est_always_taker_freq <- mean(estimates$est_always_taker_freq)
+observed_non_compliance <- mean(estimates$obs_non_compl)
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True never taker frequency:", round(true_never_takers,2), "\n")
+cat("True always taker frequency:", round(true_always_takers,2), "\n")
+cat("True complier frequency:", round(true_compliers,2), "\n")
+cat("Estimated never taker frequency:", round(est_never_taker_freq,2), "\n")
+cat("Estimated always taker frequency:", round(est_always_taker_freq,2), "\n")
+cat("Observed non-compliance frequency:", round(observed_non_compliance,2), "\n")
+cat("Observed never taker frequency:", round(obs_never_takers,2), "\n")
+cat("Observed always taker frequency:", round(obs_always_takers,2), "\n")
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+Results: When participants with bad conditions would always get the treatment, both the Per-Protocol and IV estimators provide unbiased estimates for the CACE. The observed and true non-compliance rates are similar to the previous case.
+
+Scenario C: Those with bad conditions (high DBP) would never get the treatment.
+We will randomly select some individuals as never-takers and always-takers. Then, based on the corresponding condition we will include additional never takers.
+```{r alwaystakers4}
+simfun <- function(i, n = 350, prob = 0.5, p_nevertakers = 0.1, p_alwaystakers = 0.2, mean0 = 74, mean1 = 69, sd = 1){
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  Category <- c(rep(1, round(p_nevertakers * n)), rep(2, round(p_alwaystakers * n)), 
+                rep(3, n - round(p_nevertakers * n) - round(p_alwaystakers * n)))
+  dt$Category <- sample(Category, n)
+  dt$D0 <- ifelse(dt$Category == 2, 1, 0) 
+  dt$D1 <- ifelse(dt$Category == 3 | dt$Category == 2, 1, 0)
+  dt$D0 <- ifelse(dt$Y0 > mean0 + 0.5, 0, dt$D0)
+  dt$D1 <- ifelse(dt$Y0 > mean0 + 0.5, 0, dt$D1)
+  dt$Category <- ifelse(dt$Y0 > mean0 + 0.5, 1, dt$Category)
+  dt$D <- ifelse(dt$Z == 1, dt$D1, dt$D0)
+  dt$Y <- ifelse(dt$D == 1, dt$Y1, dt$Y0)
+  dt$Compliance <- factor(dt$Category, labels = c("NT", "AT", "CO"))
+  true_always_takers <- nrow(dt %>% filter(Compliance == "AT"))/n #true always takers
+  true_never_takers <- nrow(dt %>% filter(Compliance == "NT"))/n #true never takers
+  true_compliers <- nrow(dt %>% filter(Compliance == "CO"))/n #true compliers
+  obs_non_compl <- length(which(dt$D != dt$Z))/n #observed non-compliers (observed never-takers and always-takers)
+  obs_always_takers <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/n #observed always takers 
+  obs_never_takers <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/n #observed never takers
+  est_never_taker_freq <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/nrow(dt %>% filter(Z == 1))
+  est_always_taker_freq <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/nrow(dt %>% filter(Z == 0))
+  compliers <- dt %>% filter(Compliance == "CO") #defines the subgroup of true compliers 
+  treat_prot <- dt %>% filter(Z == 1) %>% filter(D == 1) #defines the observed compliers in the treatment group
+  control_prot <- dt %>% filter(Z == 0) %>% filter(D == 0) #defines the observed compliers in the control group
+  truth <- mean(compliers$Y1) - mean(compliers$Y0) #true treatment effect in compliers
+  PPE <- mean(treat_prot$Y) - mean(control_prot$Y) #per-protocol estimate
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(treat_prot$Y)^2/nrow(treat_prot)) + (sd(control_prot$Y)^2/nrow(control_prot)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  fit_IV <- iv_robust(Y ~ D | Z, data = dt)
+  IV <- coef(fit_IV)[2] #IV estimate
+  MSE_IV <- mse(truth,IV)
+  IV_low <- fit_IV$conf.low[2]
+  IV_high <- fit_IV$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  out <- data.frame(
+    i = i,
+    true_always_takers <- true_always_takers,
+    true_never_takers <- true_never_takers,
+    true_compliers <- true_compliers,
+    obs_non_compl <- obs_non_compl,
+    obs_always_takers <- obs_always_takers,
+    obs_never_takers <- obs_never_takers,
+    est_never_taker_freq <- est_never_taker_freq,
+    est_always_taker_freq <- est_always_taker_freq,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+}
+
+
+set.seed(123)
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 16, nrow = nsim))
+x <- c("simulation","true_always_takers","true_never_takers","true_compliers","obs_non_compl","obs_always_takers",
+       "obs_never_takers","est_never_taker_freq","est_always_taker_freq","true_effect","PPE","MSE_PPE","PPE_coverage","IV",
+       "MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+true_always_takers <- mean(estimates$true_always_takers)
+true_never_takers <- mean(estimates$true_never_takers)
+true_compliers <- mean(estimates$true_compliers)
+obs_always_takers <- mean(estimates$obs_always_takers)
+obs_never_takers <- mean(estimates$obs_never_takers)
+est_never_taker_freq <- mean(estimates$est_never_taker_freq)
+est_always_taker_freq <- mean(estimates$est_always_taker_freq)
+observed_non_compliance <- mean(estimates$obs_non_compl)
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True never taker frequency:", round(true_never_takers,2), "\n")
+cat("True always taker frequency:", round(true_always_takers,2), "\n")
+cat("True complier frequency:", round(true_compliers,2), "\n")
+cat("Estimated never taker frequency:", round(est_never_taker_freq,2), "\n")
+cat("Estimated always taker frequency:", round(est_always_taker_freq,2), "\n")
+cat("Observed non-compliance frequency:", round(observed_non_compliance,2), "\n")
+cat("Observed never taker frequency:", round(obs_never_takers,2), "\n")
+cat("Observed always taker frequency:", round(obs_always_takers,2), "\n")
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+Results: When participants with bad conditions would never take the treatment, the Per-Protocol analysis yield a biased estimate for the CACE and slightly biased for the ATE. On the other hand, the IV estimator is unbiased for the CACE. The observed and true non-compliance behavior is similar to before with the only difference being that the never taker rates are bigger this time. 
+
+Scenario D: Those with good conditions (low DBP) would never get the treatment.
+We will randomly select some individuals as never-takers and always-takers. Then, based on the corresponding condition we will include additional never takers.
+```{r alwaystakers5}
+simfun <- function(i, n = 350, prob = 0.5, p_nevertakers = 0.1, p_alwaystakers = 0.2, mean0 = 74, mean1 = 69, sd = 1){
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  Category <- c(rep(1, round(p_nevertakers * n)), rep(2, round(p_alwaystakers * n)), 
+                rep(3, n - round(p_nevertakers * n) - round(p_alwaystakers * n)))
+  dt$Category <- sample(Category, n)
+  dt$D0 <- ifelse(dt$Category == 2, 1, 0) 
+  dt$D1 <- ifelse(dt$Category == 3 | dt$Category == 2, 1, 0)
+  dt$D0 <- ifelse(dt$Y0 < mean0 - 0.5, 0, dt$D0)
+  dt$D1 <- ifelse(dt$Y0 < mean0 - 0.5, 0, dt$D1)
+  dt$Category <- ifelse(dt$Y0 < mean0 - 0.5, 1, dt$Category)
+  dt$D <- ifelse(dt$Z == 1, dt$D1, dt$D0)
+  dt$Y <- ifelse(dt$D == 1, dt$Y1, dt$Y0)
+  dt$Compliance <- factor(dt$Category, labels = c("NT", "AT", "CO"))
+  true_always_takers <- nrow(dt %>% filter(Compliance == "AT"))/n #true always takers
+  true_never_takers <- nrow(dt %>% filter(Compliance == "NT"))/n #true never takers
+  true_compliers <- nrow(dt %>% filter(Compliance == "CO"))/n #true compliers
+  obs_non_compl <- length(which(dt$D != dt$Z))/n #observed non-compliers (observed never-takers and always-takers)
+  obs_always_takers <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/n #observed always takers 
+  obs_never_takers <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/n #observed never takers
+  est_never_taker_freq <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/nrow(dt %>% filter(Z == 1))
+  est_always_taker_freq <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/nrow(dt %>% filter(Z == 0))
+  compliers <- dt %>% filter(Compliance == "CO") #defines the subgroup of true compliers 
+  treat_prot <- dt %>% filter(Z == 1) %>% filter(D == 1) #defines the observed compliers in the treatment group
+  control_prot <- dt %>% filter(Z == 0) %>% filter(D == 0) #defines the observed compliers in the control group
+  truth <- mean(compliers$Y1) - mean(compliers$Y0) #true treatment effect in compliers
+  PPE <- mean(treat_prot$Y) - mean(control_prot$Y) #per-protocol estimate
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(treat_prot$Y)^2/nrow(treat_prot)) + (sd(control_prot$Y)^2/nrow(control_prot)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  fit_IV <- iv_robust(Y ~ D | Z, data = dt)
+  IV <- coef(fit_IV)[2] #IV estimate
+  MSE_IV <- mse(truth,IV)
+  IV_low <- fit_IV$conf.low[2]
+  IV_high <- fit_IV$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  out <- data.frame(
+    i = i,
+    true_always_takers <- true_always_takers,
+    true_never_takers <- true_never_takers,
+    true_compliers <- true_compliers,
+    obs_non_compl <- obs_non_compl,
+    obs_always_takers <- obs_always_takers,
+    obs_never_takers <- obs_never_takers,
+    est_never_taker_freq <- est_never_taker_freq,
+    est_always_taker_freq <- est_always_taker_freq,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+}
+
+
+set.seed(123)
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 16, nrow = nsim))
+x <- c("simulation","true_always_takers","true_never_takers","true_compliers","obs_non_compl","obs_always_takers",
+       "obs_never_takers","est_never_taker_freq","est_always_taker_freq","true_effect","PPE","MSE_PPE","PPE_coverage","IV",
+       "MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+true_always_takers <- mean(estimates$true_always_takers)
+true_never_takers <- mean(estimates$true_never_takers)
+true_compliers <- mean(estimates$true_compliers)
+obs_always_takers <- mean(estimates$obs_always_takers)
+obs_never_takers <- mean(estimates$obs_never_takers)
+est_never_taker_freq <- mean(estimates$est_never_taker_freq)
+est_always_taker_freq <- mean(estimates$est_always_taker_freq)
+observed_non_compliance <- mean(estimates$obs_non_compl)
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True never taker frequency:", round(true_never_takers,2), "\n")
+cat("True always taker frequency:", round(true_always_takers,2), "\n")
+cat("True complier frequency:", round(true_compliers,2), "\n")
+cat("Estimated never taker frequency:", round(est_never_taker_freq,2), "\n")
+cat("Estimated always taker frequency:", round(est_always_taker_freq,2), "\n")
+cat("Observed non-compliance frequency:", round(observed_non_compliance,2), "\n")
+cat("Observed never taker frequency:", round(obs_never_takers,2), "\n")
+cat("Observed always taker frequency:", round(obs_always_takers,2), "\n")
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+Results: When participants with good conditions would never take the treatment, the Per-Protocol estimator is biased for the CACE, while the IV estimator is once again unbiased.
+
+Scenario E: Those with good conditions (low DBP) would always get the treatment and those with bad conditions (high DBP) would never get the treatment.
+We will randomly select some individuals as never-takers and always-takers. Then, based on the two conditions we will include additional never takers and always takers.
+```{r alwaystakers6}
+simfun <- function(i, n = 350, prob = 0.5, p_nevertakers = 0.1, p_alwaystakers = 0.1, mean0 = 74, mean1 = 69, sd = 1){
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  Category <- c(rep(1, round(p_nevertakers * n)), rep(2, round(p_alwaystakers * n)), 
+                rep(3, n - round(p_nevertakers * n) - round(p_alwaystakers * n)))
+  dt$Category <- sample(Category, n)
+  dt$D0 <- ifelse(dt$Category == 2, 1, 0) 
+  dt$D1 <- ifelse(dt$Category == 3 | dt$Category == 2, 1, 0)
+  dt$D0 <- ifelse(dt$Y0 < mean0 - 0.5, 1, ifelse(dt$Y0 > mean0 + 0.5, 0, dt$D0))
+  dt$D1 <- ifelse(dt$Y0 < mean0 - 0.5, 1, ifelse(dt$Y0 > mean0 + 0.5, 0, dt$D1))
+  dt$Category <- ifelse(dt$Y0 < mean0 - 0.5, 2, ifelse(dt$Y0 > mean0 + 0.5, 1, dt$Category))
+  dt$D <- ifelse(dt$Z == 1, dt$D1, dt$D0)
+  dt$Y <- ifelse(dt$D == 1, dt$Y1, dt$Y0)
+  dt$Compliance <- factor(dt$Category, labels = c("NT", "AT", "CO"))
+  true_always_takers <- nrow(dt %>% filter(Compliance == "AT"))/n #true always takers
+  true_never_takers <- nrow(dt %>% filter(Compliance == "NT"))/n #true never takers
+  true_compliers <- nrow(dt %>% filter(Compliance == "CO"))/n #true compliers
+  obs_non_compl <- length(which(dt$D != dt$Z))/n #observed non-compliers (observed never-takers and always-takers)
+  obs_always_takers <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/n #observed always takers 
+  obs_never_takers <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/n #observed never takers
+  est_never_taker_freq <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/nrow(dt %>% filter(Z == 1))
+  est_always_taker_freq <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/nrow(dt %>% filter(Z == 0))
+  compliers <- dt %>% filter(Compliance == "CO") #defines the subgroup of true compliers 
+  treat_prot <- dt %>% filter(Z == 1) %>% filter(D == 1) #defines the observed compliers in the treatment group
+  control_prot <- dt %>% filter(Z == 0) %>% filter(D == 0) #defines the observed compliers in the control group
+  truth <- mean(compliers$Y1) - mean(compliers$Y0) #true treatment effect in compliers
+  PPE <- mean(treat_prot$Y) - mean(control_prot$Y) #per-protocol estimate
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(treat_prot$Y)^2/nrow(treat_prot)) + (sd(control_prot$Y)^2/nrow(control_prot)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  fit_IV <- iv_robust(Y ~ D | Z, data = dt)
+  IV <- coef(fit_IV)[2] #IV estimate
+  MSE_IV <- mse(truth,IV)
+  IV_low <- fit_IV$conf.low[2]
+  IV_high <- fit_IV$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  out <- data.frame(
+    i = i,
+    true_always_takers <- true_always_takers,
+    true_never_takers <- true_never_takers,
+    true_compliers <- true_compliers,
+    obs_non_compl <- obs_non_compl,
+    obs_always_takers <- obs_always_takers,
+    obs_never_takers <- obs_never_takers,
+    est_never_taker_freq <- est_never_taker_freq,
+    est_always_taker_freq <- est_always_taker_freq,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+}
+
+
+set.seed(24)
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 16, nrow = nsim))
+x <- c("simulation","true_always_takers","true_never_takers","true_compliers","obs_non_compl","obs_always_takers",
+       "obs_never_takers","est_never_taker_freq","est_always_taker_freq","true_effect","PPE","MSE_PPE","PPE_coverage","IV",
+       "MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+true_always_takers <- mean(estimates$true_always_takers)
+true_never_takers <- mean(estimates$true_never_takers)
+true_compliers <- mean(estimates$true_compliers)
+obs_always_takers <- mean(estimates$obs_always_takers)
+obs_never_takers <- mean(estimates$obs_never_takers)
+est_never_taker_freq <- mean(estimates$est_never_taker_freq)
+est_always_taker_freq <- mean(estimates$est_always_taker_freq)
+observed_non_compliance <- mean(estimates$obs_non_compl)
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True never taker frequency:", round(true_never_takers,2), "\n")
+cat("True always taker frequency:", round(true_always_takers,2), "\n")
+cat("True complier frequency:", round(true_compliers,2), "\n")
+cat("Estimated never taker frequency:", round(est_never_taker_freq,2), "\n")
+cat("Estimated always taker frequency:", round(est_always_taker_freq,2), "\n")
+cat("Observed non-compliance frequency:", round(observed_non_compliance,2), "\n")
+cat("Observed never taker frequency:", round(obs_never_takers,2), "\n")
+cat("Observed always taker frequency:", round(obs_always_takers,2), "\n")
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+Results: When participants with good conditions would always get the treatment and those with bad conditions would never get it, the Per-Protocol estimator is biased for the CACE while the IV estimator remains unbiased.
+
+Scenario F: Those with good conditions (low DBP) would never get the treatment and those with bad conditions (high DBP) would always get the treatment.
+We will randomly select some individuals as never-takers and always-takers. Then, based on the two conditions we will include additional never takers and always takers.
+```{r alwaystakers7}
+simfun <- function(i, n = 350, prob = 0.5, p_nevertakers = 0.1, p_alwaystakers = 0.1, mean0 = 74, mean1 = 69, sd = 1){
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  Category <- c(rep(1, round(p_nevertakers * n)), rep(2, round(p_alwaystakers * n)), 
+                rep(3, n - round(p_nevertakers * n) - round(p_alwaystakers * n)))
+  dt$Category <- sample(Category, n)
+  dt$D0 <- ifelse(dt$Category == 2, 1, 0) 
+  dt$D1 <- ifelse(dt$Category == 3 | dt$Category == 2, 1, 0)
+  dt$D0 <- ifelse(dt$Y0 < mean0 - 0.5, 0, ifelse(dt$Y0 > mean0 + 0.5, 1, dt$D0))
+  dt$D1 <- ifelse(dt$Y0 < mean0 - 0.5, 0, ifelse(dt$Y0 > mean0 + 0.5, 1, dt$D1))
+  dt$Category <- ifelse(dt$Y0 < mean0 - 0.5, 1, ifelse(dt$Y0 > mean0 + 0.5, 2, dt$Category))
+  dt$D <- ifelse(dt$Z == 1, dt$D1, dt$D0)
+  dt$Y <- ifelse(dt$D == 1, dt$Y1, dt$Y0)
+  dt$Compliance <- factor(dt$Category, labels = c("NT", "AT", "CO"))
+  true_always_takers <- nrow(dt %>% filter(Compliance == "AT"))/n #true always takers
+  true_never_takers <- nrow(dt %>% filter(Compliance == "NT"))/n #true never takers
+  true_compliers <- nrow(dt %>% filter(Compliance == "CO"))/n #true compliers
+  obs_non_compl <- length(which(dt$D != dt$Z))/n #observed non-compliers (observed never-takers and always-takers)
+  obs_always_takers <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/n #observed always takers 
+  obs_never_takers <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/n #observed never takers
+  est_never_taker_freq <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/nrow(dt %>% filter(Z == 1))
+  est_always_taker_freq <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/nrow(dt %>% filter(Z == 0))
+  compliers <- dt %>% filter(Compliance == "CO") #defines the subgroup of true compliers 
+  treat_prot <- dt %>% filter(Z == 1) %>% filter(D == 1) #defines the observed compliers in the treatment group
+  control_prot <- dt %>% filter(Z == 0) %>% filter(D == 0) #defines the observed compliers in the control group
+  truth <- mean(compliers$Y1) - mean(compliers$Y0) #true treatment effect in compliers
+  PPE <- mean(treat_prot$Y) - mean(control_prot$Y) #per-protocol estimate
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(treat_prot$Y)^2/nrow(treat_prot)) + (sd(control_prot$Y)^2/nrow(control_prot)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  fit_IV <- iv_robust(Y ~ D | Z, data = dt)
+  IV <- coef(fit_IV)[2] #IV estimate
+  MSE_IV <- mse(truth,IV)
+  IV_low <- fit_IV$conf.low[2]
+  IV_high <- fit_IV$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  out <- data.frame(
+    i = i,
+    true_always_takers <- true_always_takers,
+    true_never_takers <- true_never_takers,
+    true_compliers <- true_compliers,
+    obs_non_compl <- obs_non_compl,
+    obs_always_takers <- obs_always_takers,
+    obs_never_takers <- obs_never_takers,
+    est_never_taker_freq <- est_never_taker_freq,
+    est_always_taker_freq <- est_always_taker_freq,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+}
+
+
+set.seed(24)
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 16, nrow = nsim))
+x <- c("simulation","true_always_takers","true_never_takers","true_compliers","obs_non_compl","obs_always_takers",
+       "obs_never_takers","est_never_taker_freq","est_always_taker_freq","true_effect","PPE","MSE_PPE","PPE_coverage","IV",
+       "MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+true_always_takers <- mean(estimates$true_always_takers)
+true_never_takers <- mean(estimates$true_never_takers)
+true_compliers <- mean(estimates$true_compliers)
+obs_always_takers <- mean(estimates$obs_always_takers)
+obs_never_takers <- mean(estimates$obs_never_takers)
+est_never_taker_freq <- mean(estimates$est_never_taker_freq)
+est_always_taker_freq <- mean(estimates$est_always_taker_freq)
+observed_non_compliance <- mean(estimates$obs_non_compl)
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True never taker frequency:", round(true_never_takers,2), "\n")
+cat("True always taker frequency:", round(true_always_takers,2), "\n")
+cat("True complier frequency:", round(true_compliers,2), "\n")
+cat("Estimated never taker frequency:", round(est_never_taker_freq,2), "\n")
+cat("Estimated always taker frequency:", round(est_always_taker_freq,2), "\n")
+cat("Observed non-compliance frequency:", round(observed_non_compliance,2), "\n")
+cat("Observed never taker frequency:", round(obs_never_takers,2), "\n")
+cat("Observed always taker frequency:", round(obs_always_takers,2), "\n")
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+
+Results: When participants with good conditions would never get the treatment and those with bad conditions would always get it, the Per-Protocol estimator is biased for the CACE while the IV estimator remains unbiased.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
