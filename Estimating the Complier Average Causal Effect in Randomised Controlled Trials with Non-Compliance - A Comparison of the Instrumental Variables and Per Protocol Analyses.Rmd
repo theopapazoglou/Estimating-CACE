@@ -1,0 +1,2317 @@
+---
+title: "Estimating the Complier Average Causal Effect in Randomised Controlled Trials with Non-Compliance: A Comparison of the Instrumental Variables and Per Protocol Analyses"
+author: "Theodosios Papazoglou"
+date: "2024-07-20"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This document contains the main simulation analysis employed during the MSc Research Project at the Department of Mathematics of Imperial College of London titled "Estimating the Complier Average Causal Effect in Randomised Controlled Trials with Non-Compliance: A Comparative Simulation Analysis of the Instrumental Variables and Per Protocol Methods" from MSc student Theodosios (Theo) Papazoglou. To replicate the following simulations you can use the code as provided setting the seed equal to 24.
+\par
+First we load the libraries used throughout the simulations.
+```{r}
+library(dplyr)
+library(descr)
+library(estimatr)
+library(Metrics)
+library(ggplot2)
+library(reshape2)
+```
+
+\par
+We consider two cases of Compliance, Binary and Partial. When non-compliance is random we use the following proportions to randomly select the subgroups of non-compliers. For the binary compliance case, we consider $40\%$ of the study population to be non-compliers. In the presence of both never-takers and always-takers, this is divided to $25\%$ never-takers ($D(1)=D(0)=0$) and $15\%$ always-takers ($D(1)=D(0)=1$). For the partial compliance case we have, 
+\begin{itemize}
+    \item For the control group: $50\%$ comply with their allocated treatment ($D=0$), $20\%$ take CPAP for 2 hours ($D=1/4$), $10\%$ take CPAP for 4 hours ($D=1/2$), $10\%$ take CPAP for 6 hours ($D=3/4$) and $10\%$ take the complete CPAP treatment ($D=1$),
+    \item For the treatment group: $50\%$ comply with their allocated treatment ($D=1$), $20\%$ take CPAP for 6 hours ($D=3/4$), $10\%$ take CPAP for 4 hours ($D=1/2$), $10\%$ take CPAP for 2 hours ($D=3/4$) and $10\%$ do not take CPAP at all ($D=0$).
+\end{itemize}
+When non-compliance is not random and depends on participants' potential outcomes under usual care, we employ the following scenarios
+\begin{enumerate}
+ \item \textbf{Scenario A}: Participants with good conditions would never receive the treatment,
+ \item \textbf{Scenario B}: Participants with bad conditions would never receive the treatment,
+ \item \textbf{Scenario C}: Participants with good conditions would always receive the treatment, 
+ \item \textbf{Scenario D}: Participants with bad conditions would always receive the treatment, 
+ \item \textbf{Scenario E}: Participants with bad conditions would always receive the treatment and participants with good conditions would always reject the treatment,
+ \item \textbf{Scenario F}: Participants with bad conditions would never receive the treatment and participants with good conditions would always receive the treatment,
+ \item \textbf{Scenario G}: Participants with good conditions would never receive the treatment and participants with severe bad conditions would always receive the treatment. Additionally, participants with moderately bad conditions would always receive three quarters of the treatment, participants with moderate to mild bad conditions would receive half of the treatment and participants with mild bad conditions would always receive a quarter of the treatment.
+ \item \textbf{Scenario H}: Participants with bad conditions would never receive the treatment and participants with severe good conditions would always receive the treatment. Additionally, participants with moderately good conditions would always receive three quarters of the treatment, participants with moderate to mild good conditions would receive half of the treatment and participants with mild good conditions would always receive a quarter of the treatment.
+\end{enumerate}
+
+For the Binary Compliance case only Scenarios A-F are applied and for the Partial Compliance case all 8 Scenarios are Applied, when allowing for both Always-Takers and Never-Takers. When allowing only for Never-Takers, Scenarios A and B are applied to the Binary Compliance case and Scenarios A,B,G and H are applied to the Partial Compliance case. 
+\par
+For the 4 cases of Compliance Threshold (applied only for the Partial Compliance case) we use the following,
+\begin{enumerate}
+ \item CASE I: True compliers are defined as participants who take the whole CPAP treatment (8 hours),
+ \item CASE II: True compliers are defined as participants who take at least $75\%$ of the CPAP treatment (at least 6 hours),
+ \item CASE III: True compliers are defined as participants who take at least half ($50\%$) of the CPAP treatment (at least 4 hours), and
+ \item CASE IV: True compliers are defined as participants who take any part of the CPAP treatment (more than 0 hours)
+\end{enumerate}
+\par
+For more details on the structure of the simulations see the final version of the Thesis.
+
+For the Binary Compliance we vary the following factors,
+\begin{enumerate}
+ \item True Treatment Effect,
+ \item Type of Non-Compliers,
+ \item Randomness of Non-compliers (For the Non-Random case we consider severe and mild Non-Randomness)
+\end{enumerate}
+
+
+In this file we only present the code for the main simulation analysis. Their results are summarised in the Tables in Section 3 of the thesis. A second file that will include the code for all the additional sensitivity analyses will be available.
+
+
+The following code chunk implements the Random Non-Compliance case in the presence of Never-Takers only for the Binary Compliance case when the true treatment effect is equal to $5$. 
+```{r simulation1}
+set.seed(24)
+simfun <- function(i, n = 350, prob = 0.5, p_noncompliers = 0.4, mean0 = 74, mean1 = 69, sd = 1){
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  Category <- c(rep(1, round(p_noncompliers * n)), rep(2, n - round(p_noncompliers * n)))
+  dt$Category <- sample(Category, n)
+  dt$D0 <- 0
+  dt$D1 <- ifelse(dt$Category == 2, 1, 0) #Category 1 corresponds to Never-Takers and 2 to Compliers
+  dt$D <- ifelse(dt$Z == 1, dt$D1, dt$D0)
+  dt$Y <- ifelse(dt$D == 1, dt$Y1, dt$Y0)
+  obs_non_compl <- length(which(dt$D != dt$Z))/350
+  est_never_taker_freq <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/nrow(dt %>% filter(Z == 1))
+  dt$Compliance <- factor(dt$Category, labels = c("NT", "CO"))
+  compliers <- dt %>% filter(Compliance == "CO") #Defines the subgroup of true compliers
+  treat_prot <- dt %>% filter(Z == 1) %>% filter(D == 1) #Defines observed compliers in the treatment group
+  control_prot <- dt %>% filter(Z == 0) %>% filter(D == 0) #Defines observed compliers in the control group
+  truth <- mean(compliers$Y1) - mean(compliers$Y0) #True mean difference among compliers
+  PPE <- mean(treat_prot$Y) - mean(control_prot$Y) #Per-protocol estimate
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(treat_prot$Y)^2/nrow(treat_prot)) + (sd(control_prot$Y)^2/nrow(control_prot)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  fit_IV <- iv_robust(Y ~ D | Z, data = dt)
+  IV <- coef(fit_IV)[2] #Instrumental Variable estimate
+  MSE_IV <- mse(truth,IV)
+  IV_low <- fit_IV$conf.low[2]
+  IV_high <- fit_IV$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  out <- data.frame(
+    i = i,
+    est_never_taker_freq,
+    obs_non_compl <- obs_non_compl,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+}
+
+
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 10, nrow = nsim))
+x <- c("simulation","est_never_taker_freq","obs_non_compl","true_effect","PPE","MSE_PPE","PPE_coverage","IV",
+       "MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+est_never_taker_freq <- mean(estimates$est_never_taker_freq)
+observed_non_compliance <- mean(estimates$obs_non_compl)
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias_1 <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias_1 <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("Estimated never taker frequency:", round(est_never_taker_freq,2), "\n")
+cat("Observed non-compliance frequency:", round(observed_non_compliance,2), "\n")
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias_1, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias_1,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+
+The following code chunk implements the Non-Random Non-Compliance Scenario A for severe Non-Randomness ($\delta=0.5$) in the presence of Never-Takers only for the Binary Compliance case when the true treatment effect is equal to $5$. 
+```{r simulation2}
+set.seed(24)
+simfun <- function(i, n = 350, prob = 0.5, p_noncompliers = 0.4, mean0 = 74, mean1 = 69, sd = 1){
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  Category <- c(rep(1, round(p_noncompliers * n)), rep(2, n - round(p_noncompliers * n)))
+  dt$Category <- sample(Category, n)
+  dt$D0 <- 0
+  dt$D1 <- ifelse(dt$Category == 2, 1, 0)
+  dt$D1 <- ifelse(dt$Y0 < mean0 - 0.5, 0, dt$D1)
+  dt$Category <- ifelse(dt$Y0 < mean0 - 0.5, 1, dt$Category)
+  dt$D <- ifelse(dt$Z == 1, dt$D1, dt$D0)
+  dt$Y <- ifelse(dt$D == 1, dt$Y1, dt$Y0)
+  dt$Compliance <- factor(dt$Category, labels = c("NT", "CO"))
+  true_never_takers <- nrow(dt %>% filter(Compliance == "NT"))/n #True never takers
+  true_compliers <- nrow(dt %>% filter(Compliance == "CO"))/n #True compliers
+  obs_non_compl <- length(which(dt$D != dt$Z))/n #Observed non-compliers 
+  est_never_taker_freq <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/nrow(dt %>% filter(Z == 1))
+  compliers <- dt %>% filter(Compliance == "CO") #Defines the subgroup of true compliers 
+  treat_prot <- dt %>% filter(Z == 1) %>% filter(D == 1) #Defines the observed compliers in the treatment group
+  control_prot <- dt %>% filter(Z == 0) %>% filter(D == 0) #Defines the observed compliers in the control group
+  truth <- mean(compliers$Y1) - mean(compliers$Y0) #True mean difference among compliers
+  PPE <- mean(treat_prot$Y) - mean(control_prot$Y) #Per-protocol estimate
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(treat_prot$Y)^2/nrow(treat_prot)) + (sd(control_prot$Y)^2/nrow(control_prot)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  fit_IV <- iv_robust(Y ~ D | Z, data = dt)
+  IV <- coef(fit_IV)[2] #IV estimate
+  MSE_IV <- mse(truth,IV)
+  IV_low <- fit_IV$conf.low[2]
+  IV_high <- fit_IV$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  out <- data.frame(
+    i = i,
+    true_never_takers <- true_never_takers,
+    true_compliers <- true_compliers,
+    obs_non_compl <- obs_non_compl,
+    est_never_taker_freq <- est_never_taker_freq,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+}
+
+
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 14, nrow = nsim))
+x <- c("simulation","true_never_takers","true_compliers","obs_non_compl",
+         "est_never_taker_freq","true_effect","PPE","MSE_PPE","PPE_coverage","IV","MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+true_never_takers <- mean(estimates$true_never_takers)
+true_compliers <- mean(estimates$true_compliers)
+est_never_taker_freq <- mean(estimates$est_never_taker_freq)
+observed_non_compliance <- mean(estimates$obs_non_compl)
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias_2 <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias_2 <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True never taker frequency:", round(true_never_takers,2), "\n")
+cat("True complier frequency:", round(true_compliers,2), "\n")
+cat("Estimated never taker frequency:", round(est_never_taker_freq,2), "\n")
+cat("Observed non-compliance frequency:", round(observed_non_compliance,2), "\n")
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias_2, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias_2,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+
+The following code chunk implements the Non-Random Non-Compliance Scenario B for severe Non-Randomness ($\delta=0.5$) in the presence of Never-Takers only for the Binary Compliance case when the true treatment effect is equal to $5$. 
+```{r simulation3}
+set.seed(24)
+simfun <- function(i, n = 350, prob = 0.5, p_noncompliers = 0.4, mean0 = 74, mean1 = 69, sd = 1){
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  Category <- c(rep(1, round(p_noncompliers * n)), rep(2, n - round(p_noncompliers * n)))
+  dt$Category <- sample(Category, n)
+  dt$D0 <- 0
+  dt$D1 <- ifelse(dt$Category == 2, 1, 0)
+  dt$D1 <- ifelse(dt$Y0 > mean0 + 0.5, 0, dt$D1)
+  dt$Category <- ifelse(dt$Y0 > mean0 + 0.5, 1, dt$Category)
+  dt$D <- ifelse(dt$Z == 1, dt$D1, dt$D0)
+  dt$Y <- ifelse(dt$D == 1, dt$Y1, dt$Y0)
+  dt$Compliance <- factor(dt$Category, labels = c("NT", "CO"))
+  true_never_takers <- nrow(dt %>% filter(Compliance == "NT"))/n #True never takers
+  true_compliers <- nrow(dt %>% filter(Compliance == "CO"))/n #True compliers
+  obs_non_compl <- length(which(dt$D != dt$Z))/n #Observed non-compliers
+  est_never_taker_freq <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/nrow(dt %>% filter(Z == 1))
+  compliers <- dt %>% filter(Compliance == "CO") #Defines the subgroup of true compliers 
+  treat_prot <- dt %>% filter(Z == 1) %>% filter(D == 1) #Defines the observed compliers in the treatment group
+  control_prot <- dt %>% filter(Z == 0) %>% filter(D == 0) #Defines the observed compliers in the control group
+  truth <- mean(compliers$Y1) - mean(compliers$Y0) #True mean difference among compliers
+  PPE <- mean(treat_prot$Y) - mean(control_prot$Y) #Per-protocol estimate
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(treat_prot$Y)^2/nrow(treat_prot)) + (sd(control_prot$Y)^2/nrow(control_prot)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  fit_IV <- iv_robust(Y ~ D | Z, data = dt)
+  IV <- coef(fit_IV)[2] #IV estimate
+  MSE_IV <- mse(truth,IV)
+  IV_low <- fit_IV$conf.low[2]
+  IV_high <- fit_IV$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  out <- data.frame(
+    i = i,
+    true_never_takers <- true_never_takers,
+    true_compliers <- true_compliers,
+    obs_non_compl <- obs_non_compl,
+    est_never_taker_freq <- est_never_taker_freq,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+}
+
+
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 12, nrow = nsim))
+x <- c("simulation","true_never_takers","true_compliers","obs_non_compl",
+       "est_never_taker_freq","true_effect","PPE","MSE_PPE","PPE_coverage","IV","MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+true_never_takers <- mean(estimates$true_never_takers)
+true_compliers <- mean(estimates$true_compliers)
+est_never_taker_freq <- mean(estimates$est_never_taker_freq)
+observed_non_compliance <- mean(estimates$obs_non_compl)
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias_3 <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias_3 <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True never taker frequency:", round(true_never_takers,2), "\n")
+cat("True complier frequency:", round(true_compliers,2), "\n")
+cat("Estimated never taker frequency:", round(est_never_taker_freq,2), "\n")
+cat("Observed non-compliance frequency:", round(observed_non_compliance,2), "\n")
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias_3, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias_3,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+
+The following code chunk implements the Random Non-Compliance case in the presence of both Never-Takers and Always-Takers for the Binary Compliance case when the true treatment effect is equal to $5$.
+```{r simulation4}
+set.seed(24)
+simfun <- function(i, n = 350, prob = 0.5, p_nevertakers = 0.25, p_alwaystakers = 0.15, mean0 = 74, mean1 = 69, sd = 1){
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  Category <- c(rep(1, round(p_nevertakers * n)), rep(2, round(p_alwaystakers * n)), 
+                rep(3, n - round(p_nevertakers * n) - round(p_alwaystakers * n)))
+  dt$Category <- sample(Category, n)
+  dt$D0 <- ifelse(dt$Category == 2, 1, 0) 
+  dt$D1 <- ifelse(dt$Category == 3 | dt$Category == 2, 1, 0)
+  dt$D <- ifelse(dt$Z == 1, dt$D1, dt$D0) #D = ZD(1) + (1-Z)D(0)
+  dt$Y <- ifelse(dt$D == 1, dt$Y1, dt$Y0) 
+  obs_non_compl <- length(which(dt$D != dt$Z))/n #Observed non-compliers (observed never-takers and always-takers)
+  obs_always_takers <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/n #Observed always takers 
+  obs_never_takers <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/n #Observed never takers
+  est_never_taker_freq <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/nrow(dt %>% filter(Z == 1))
+  est_always_taker_freq <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/nrow(dt %>% filter(Z == 0))
+  dt$Compliance <- factor(dt$Category, labels = c("NT", "AT", "CO"))
+  compliers <- dt %>% filter(Compliance == "CO") #Defines the subgroup of true compliers 
+  treat_prot <- dt %>% filter(Z == 1) %>% filter(D == 1) #Defines the observed compliers in the treatment group
+  control_prot <- dt %>% filter(Z == 0) %>% filter(D == 0) #Defines the observed compliers in the control group
+  truth <- mean(compliers$Y1) - mean(compliers$Y0) #True mean difference among compliers
+  PPE <- mean(treat_prot$Y) - mean(control_prot$Y) #Per-protocol estimate
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(treat_prot$Y)^2/nrow(treat_prot)) + (sd(control_prot$Y)^2/nrow(control_prot)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  fit_IV <- iv_robust(Y ~ D | Z, data = dt)
+  IV <- coef(fit_IV)[2] #IV estimate
+  MSE_IV <- mse(truth,IV)
+  IV_low <- fit_IV$conf.low[2]
+  IV_high <- fit_IV$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  out <- data.frame(
+    i = i,
+    obs_non_compl <- obs_non_compl,
+    obs_always_takers <- obs_always_takers,
+    obs_never_takers <- obs_never_takers,
+    est_never_taker_freq <- est_never_taker_freq,
+    est_always_taker_freq <- est_always_taker_freq,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+}
+
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 13, nrow = nsim))
+x <- c("simulation","obs_non_compl","obs_always_takers","obs_never_takers","est_never_taker_freq","est_always_taker_freq",
+       "true_effect","PPE","MSE_PPE","PPE_coverage","IV","MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+obs_always_takers <- mean(estimates$obs_always_takers)
+obs_never_takers <- mean(estimates$obs_never_takers)
+est_never_taker_freq <- mean(estimates$est_never_taker_freq)
+est_always_taker_freq <- mean(estimates$est_always_taker_freq)
+observed_non_compliance <- mean(estimates$obs_non_compl)
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias_4 <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias_4 <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("Estimated never taker frequency:", round(est_never_taker_freq,2), "\n")
+cat("Estimated always taker frequency:", round(est_always_taker_freq,2), "\n")
+cat("Observed non-compliance frequency:", round(observed_non_compliance,2), "\n")
+cat("Observed never taker frequency:", round(obs_never_takers,2), "\n")
+cat("Observed always taker frequency:", round(obs_always_takers,2), "\n")
+cat("True effect:", round(truth, 2), "\n")
+cat("PP effect:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias_4, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV effect:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias_4,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+
+The following code chunk implements the Non-Random Non-Compliance Scenario A for severe Non-Randomness ($\delta=0.5$) in the presence of both Never-Takers and Always-Takers for the Binary Compliance case when the true treatment effect is equal to $5$. 
+```{r simulation5}
+set.seed(24)
+simfun <- function(i, n = 350, prob = 0.5, p_nevertakers = 0.25, p_alwaystakers = 0.15, mean0 = 74, mean1 = 69, sd = 1){
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  Category <- c(rep(1, round(p_nevertakers * n)), rep(2, round(p_alwaystakers * n)), 
+                rep(3, n - round(p_nevertakers * n) - round(p_alwaystakers * n)))
+  dt$Category <- sample(Category, n)
+  dt$D0 <- ifelse(dt$Category == 2, 1, 0) 
+  dt$D1 <- ifelse(dt$Category == 3 | dt$Category == 2, 1, 0)
+  dt$D0 <- ifelse(dt$Y0 < mean0 - 0.5, 0, dt$D0)
+  dt$D1 <- ifelse(dt$Y0 < mean0 - 0.5, 0, dt$D1)
+  dt$Category <- ifelse(dt$Y0 < mean0 - 0.5, 1, dt$Category)
+  dt$D <- ifelse(dt$Z == 1, dt$D1, dt$D0)
+  dt$Y <- ifelse(dt$D == 1, dt$Y1, dt$Y0)
+  dt$Compliance <- factor(dt$Category, labels = c("NT", "AT", "CO"))
+  true_always_takers <- nrow(dt %>% filter(Compliance == "AT"))/n #True always takers
+  true_never_takers <- nrow(dt %>% filter(Compliance == "NT"))/n #True never takers
+  true_compliers <- nrow(dt %>% filter(Compliance == "CO"))/n #True compliers
+  obs_non_compl <- length(which(dt$D != dt$Z))/n #Observed non-compliers (observed never-takers and always-takers)
+  obs_always_takers <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/n #Observed always takers 
+  obs_never_takers <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/n #Observed never takers
+  est_never_taker_freq <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/nrow(dt %>% filter(Z == 1))
+  est_always_taker_freq <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/nrow(dt %>% filter(Z == 0))
+  compliers <- dt %>% filter(Compliance == "CO") #Defines the subgroup of true compliers 
+  treat_prot <- dt %>% filter(Z == 1) %>% filter(D == 1) #Defines the observed compliers in the treatment group
+  control_prot <- dt %>% filter(Z == 0) %>% filter(D == 0) #Defines the observed compliers in the control group
+  truth <- mean(compliers$Y1) - mean(compliers$Y0) #True treatment effect in compliers
+  PPE <- mean(treat_prot$Y) - mean(control_prot$Y) #Per-protocol estimate
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(treat_prot$Y)^2/nrow(treat_prot)) + (sd(control_prot$Y)^2/nrow(control_prot)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  fit_IV <- iv_robust(Y ~ D | Z, data = dt)
+  IV <- coef(fit_IV)[2] #IV estimate
+  MSE_IV <- mse(truth,IV)
+  IV_low <- fit_IV$conf.low[2]
+  IV_high <- fit_IV$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  out <- data.frame(
+    i = i,
+    true_always_takers <- true_always_takers,
+    true_never_takers <- true_never_takers,
+    true_compliers <- true_compliers,
+    obs_non_compl <- obs_non_compl,
+    obs_always_takers <- obs_always_takers,
+    obs_never_takers <- obs_never_takers,
+    est_never_taker_freq <- est_never_taker_freq,
+    est_always_taker_freq <- est_always_taker_freq,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+}
+
+
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 16, nrow = nsim))
+x <- c("simulation","true_always_takers","true_never_takers","true_compliers","obs_non_compl","obs_always_takers",
+       "obs_never_takers","est_never_taker_freq","est_always_taker_freq","true_effect","PPE","MSE_PPE","PPE_coverage","IV",
+       "MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+true_always_takers <- mean(estimates$true_always_takers)
+true_never_takers <- mean(estimates$true_never_takers)
+true_compliers <- mean(estimates$true_compliers)
+obs_always_takers <- mean(estimates$obs_always_takers)
+obs_never_takers <- mean(estimates$obs_never_takers)
+est_never_taker_freq <- mean(estimates$est_never_taker_freq)
+est_always_taker_freq <- mean(estimates$est_always_taker_freq)
+observed_non_compliance <- mean(estimates$obs_non_compl)
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias_5 <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias_5 <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True never taker frequency:", round(true_never_takers,2), "\n")
+cat("True always taker frequency:", round(true_always_takers,2), "\n")
+cat("True complier frequency:", round(true_compliers,2), "\n")
+cat("Estimated never taker frequency:", round(est_never_taker_freq,2), "\n")
+cat("Estimated always taker frequency:", round(est_always_taker_freq,2), "\n")
+cat("Observed non-compliance frequency:", round(observed_non_compliance,2), "\n")
+cat("Observed never taker frequency:", round(obs_never_takers,2), "\n")
+cat("Observed always taker frequency:", round(obs_always_takers,2), "\n")
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias_5, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias_5,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+
+The following code chunk implements the Non-Random Non-Compliance Scenario B for severe Non-Randomness ($\delta=0.5$) in the presence of both Never-Takers and Always-Takers for the Binary Compliance case when the true treatment effect is equal to $5$. 
+```{r simulation6}
+set.seed(24)
+simfun <- function(i, n = 350, prob = 0.5, p_nevertakers = 0.25, p_alwaystakers = 0.15, mean0 = 74, mean1 = 69, sd = 1){
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  Category <- c(rep(1, round(p_nevertakers * n)), rep(2, round(p_alwaystakers * n)), 
+                rep(3, n - round(p_nevertakers * n) - round(p_alwaystakers * n)))
+  dt$Category <- sample(Category, n)
+  dt$D0 <- ifelse(dt$Category == 2, 1, 0) 
+  dt$D1 <- ifelse(dt$Category == 3 | dt$Category == 2, 1, 0)
+  dt$D0 <- ifelse(dt$Y0 > mean0 + 0.5, 0, dt$D0)
+  dt$D1 <- ifelse(dt$Y0 > mean0 + 0.5, 0, dt$D1)
+  dt$Category <- ifelse(dt$Y0 > mean0 + 0.5, 1, dt$Category)
+  dt$D <- ifelse(dt$Z == 1, dt$D1, dt$D0)
+  dt$Y <- ifelse(dt$D == 1, dt$Y1, dt$Y0)
+  dt$Compliance <- factor(dt$Category, labels = c("NT", "AT", "CO"))
+  true_always_takers <- nrow(dt %>% filter(Compliance == "AT"))/n #True always takers
+  true_never_takers <- nrow(dt %>% filter(Compliance == "NT"))/n #True never takers
+  true_compliers <- nrow(dt %>% filter(Compliance == "CO"))/n #True compliers
+  obs_non_compl <- length(which(dt$D != dt$Z))/n #Observed non-compliers (observed never-takers and always-takers)
+  obs_always_takers <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/n #Observed always takers 
+  obs_never_takers <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/n #Observed never takers
+  est_never_taker_freq <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/nrow(dt %>% filter(Z == 1))
+  est_always_taker_freq <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/nrow(dt %>% filter(Z == 0))
+  compliers <- dt %>% filter(Compliance == "CO") #Defines the subgroup of true compliers 
+  treat_prot <- dt %>% filter(Z == 1) %>% filter(D == 1) #Defines the observed compliers in the treatment group
+  control_prot <- dt %>% filter(Z == 0) %>% filter(D == 0) #Defines the observed compliers in the control group
+  truth <- mean(compliers$Y1) - mean(compliers$Y0) #True treatment effect in compliers
+  PPE <- mean(treat_prot$Y) - mean(control_prot$Y) #Per-protocol estimate
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(treat_prot$Y)^2/nrow(treat_prot)) + (sd(control_prot$Y)^2/nrow(control_prot)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  fit_IV <- iv_robust(Y ~ D | Z, data = dt)
+  IV <- coef(fit_IV)[2] #IV estimate
+  MSE_IV <- mse(truth,IV)
+  IV_low <- fit_IV$conf.low[2]
+  IV_high <- fit_IV$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  out <- data.frame(
+    i = i,
+    true_always_takers <- true_always_takers,
+    true_never_takers <- true_never_takers,
+    true_compliers <- true_compliers,
+    obs_non_compl <- obs_non_compl,
+    obs_always_takers <- obs_always_takers,
+    obs_never_takers <- obs_never_takers,
+    est_never_taker_freq <- est_never_taker_freq,
+    est_always_taker_freq <- est_always_taker_freq,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+}
+
+
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 16, nrow = nsim))
+x <- c("simulation","true_always_takers","true_never_takers","true_compliers","obs_non_compl","obs_always_takers",
+       "obs_never_takers","est_never_taker_freq","est_always_taker_freq","true_effect","PPE","MSE_PPE","PPE_coverage","IV",
+       "MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+true_always_takers <- mean(estimates$true_always_takers)
+true_never_takers <- mean(estimates$true_never_takers)
+true_compliers <- mean(estimates$true_compliers)
+obs_always_takers <- mean(estimates$obs_always_takers)
+obs_never_takers <- mean(estimates$obs_never_takers)
+est_never_taker_freq <- mean(estimates$est_never_taker_freq)
+est_always_taker_freq <- mean(estimates$est_always_taker_freq)
+observed_non_compliance <- mean(estimates$obs_non_compl)
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias_6 <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias_6 <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True never taker frequency:", round(true_never_takers,2), "\n")
+cat("True always taker frequency:", round(true_always_takers,2), "\n")
+cat("True complier frequency:", round(true_compliers,2), "\n")
+cat("Estimated never taker frequency:", round(est_never_taker_freq,2), "\n")
+cat("Estimated always taker frequency:", round(est_always_taker_freq,2), "\n")
+cat("Observed non-compliance frequency:", round(observed_non_compliance,2), "\n")
+cat("Observed never taker frequency:", round(obs_never_takers,2), "\n")
+cat("Observed always taker frequency:", round(obs_always_takers,2), "\n")
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias_6, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias_6,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+
+The following code chunk implements the Non-Random Non-Compliance Scenario C for severe Non-Randomness ($\delta=0.5$) in the presence of both Never-Takers and Always-Takers for the Binary Compliance case when the true treatment effect is equal to $5$. 
+```{r simulation7}
+set.seed(24)
+simfun <- function(i, n = 350, prob = 0.5, p_nevertakers = 0.25, p_alwaystakers = 0.15, mean0 = 74, mean1 = 69, sd = 1){
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  Category <- c(rep(1, round(p_nevertakers * n)), rep(2, round(p_alwaystakers * n)), 
+                rep(3, n - round(p_nevertakers * n) - round(p_alwaystakers * n)))
+  dt$Category <- sample(Category, n)
+  dt$D0 <- ifelse(dt$Category == 2, 1, 0) 
+  dt$D1 <- ifelse(dt$Category == 3 | dt$Category == 2, 1, 0)
+  dt$D0 <- ifelse(dt$Y0 < mean0 - 0.5, 1, dt$D0)
+  dt$D1 <- ifelse(dt$Y0 < mean0 - 0.5, 1, dt$D1)
+  dt$Category <- ifelse(dt$Y0 < mean0 - 0.5, 2, dt$Category)
+  dt$D <- ifelse(dt$Z == 1, dt$D1, dt$D0)
+  dt$Y <- ifelse(dt$D == 1, dt$Y1, dt$Y0)
+  dt$Compliance <- factor(dt$Category, labels = c("NT", "AT", "CO"))
+  true_always_takers <- nrow(dt %>% filter(Compliance == "AT"))/n #True always takers
+  true_never_takers <- nrow(dt %>% filter(Compliance == "NT"))/n #True never takers
+  true_compliers <- nrow(dt %>% filter(Compliance == "CO"))/n #True compliers
+  obs_non_compl <- length(which(dt$D != dt$Z))/n #Observed non-compliers (observed never-takers and always-takers)
+  obs_always_takers <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/n #Observed always takers 
+  obs_never_takers <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/n #Observed never takers
+  est_never_taker_freq <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/nrow(dt %>% filter(Z == 1))
+  est_always_taker_freq <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/nrow(dt %>% filter(Z == 0))
+  compliers <- dt %>% filter(Compliance == "CO") #Defines the subgroup of true compliers
+  treat_prot <- dt %>% filter(Z == 1) %>% filter(D == 1) #Defines the observed compliers in the treatment group
+  control_prot <- dt %>% filter(Z == 0) %>% filter(D == 0) #Defines the observed compliers in the control group
+  truth <- mean(compliers$Y1) - mean(compliers$Y0) #True treatment effect in compliers
+  PPE <- mean(treat_prot$Y) - mean(control_prot$Y) #Per-protocol  estimate
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(treat_prot$Y)^2/nrow(treat_prot)) + (sd(control_prot$Y)^2/nrow(control_prot)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  fit_IV <- iv_robust(Y ~ D | Z, data = dt)
+  IV <- coef(fit_IV)[2] #IV estimate
+  MSE_IV <- mse(truth,IV)
+  IV_low <- fit_IV$conf.low[2]
+  IV_high <- fit_IV$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  out <- data.frame(
+    i = i,
+    true_always_takers <- true_always_takers,
+    true_never_takers <- true_never_takers,
+    true_compliers <- true_compliers,
+    obs_non_compl <- obs_non_compl,
+    obs_always_takers <- obs_always_takers,
+    obs_never_takers <- obs_never_takers,
+    est_never_taker_freq <- est_never_taker_freq,
+    est_always_taker_freq <- est_always_taker_freq,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+}
+
+
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 16, nrow = nsim))
+x <- c("simulation","true_always_takers","true_never_takers","true_compliers","obs_non_compl","obs_always_takers",
+       "obs_never_takers","est_never_taker_freq","est_always_taker_freq","true_effect","PPE","MSE_PPE","PPE_coverage","IV",
+       "MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+true_always_takers <- mean(estimates$true_always_takers)
+true_never_takers <- mean(estimates$true_never_takers)
+true_compliers <- mean(estimates$true_compliers)
+obs_always_takers <- mean(estimates$obs_always_takers)
+obs_never_takers <- mean(estimates$obs_never_takers)
+est_never_taker_freq <- mean(estimates$est_never_taker_freq)
+est_always_taker_freq <- mean(estimates$est_always_taker_freq)
+observed_non_compliance <- mean(estimates$obs_non_compl)
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias_7 <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias_7 <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True never taker frequency:", round(true_never_takers,2), "\n")
+cat("True always taker frequency:", round(true_always_takers,2), "\n")
+cat("True complier frequency:", round(true_compliers,2), "\n")
+cat("Estimated never taker frequency:", round(est_never_taker_freq,2), "\n")
+cat("Estimated always taker frequency:", round(est_always_taker_freq,2), "\n")
+cat("Observed non-compliance frequency:", round(observed_non_compliance,2), "\n")
+cat("Observed never taker frequency:", round(obs_never_takers,2), "\n")
+cat("Observed always taker frequency:", round(obs_always_takers,2), "\n")
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias_7, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias_7,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+
+The following code chunk implements the Non-Random Non-Compliance Scenario D for severe Non-Randomness ($\delta=0.5$) in the presence of both Never-Takers and Always-Takers for the Binary Compliance case when the true treatment effect is equal to $5$. 
+```{r simulation8}
+set.seed(24)
+simfun <- function(i, n = 350, prob = 0.5, p_nevertakers = 0.25, p_alwaystakers = 0.15, mean0 = 74, mean1 = 69, sd = 1){
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  Category <- c(rep(1, round(p_nevertakers * n)), rep(2, round(p_alwaystakers * n)), 
+                rep(3, n - round(p_nevertakers * n) - round(p_alwaystakers * n)))
+  dt$Category <- sample(Category, n)
+  dt$D0 <- ifelse(dt$Category == 2, 1, 0) 
+  dt$D1 <- ifelse(dt$Category == 3 | dt$Category == 2, 1, 0)
+  dt$D0 <- ifelse(dt$Y0 > mean0 + 0.5, 1, dt$D0)
+  dt$D1 <- ifelse(dt$Y0 > mean0 + 0.5, 1, dt$D1)
+  dt$Category <- ifelse(dt$Y0 > mean0 + 0.5, 2, dt$Category)
+  dt$D <- ifelse(dt$Z == 1, dt$D1, dt$D0)
+  dt$Y <- ifelse(dt$D == 1, dt$Y1, dt$Y0)
+  dt$Compliance <- factor(dt$Category, labels = c("NT", "AT", "CO"))
+  true_always_takers <- nrow(dt %>% filter(Compliance == "AT"))/n #True always takers
+  true_never_takers <- nrow(dt %>% filter(Compliance == "NT"))/n #True never takers
+  true_compliers <- nrow(dt %>% filter(Compliance == "CO"))/n #True compliers
+  obs_non_compl <- length(which(dt$D != dt$Z))/n #Observed non-compliers (observed never-takers and always-takers)
+  obs_always_takers <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/n #Observed always takers 
+  obs_never_takers <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/n #Observed never takers
+  est_never_taker_freq <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/nrow(dt %>% filter(Z == 1))
+  est_always_taker_freq <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/nrow(dt %>% filter(Z == 0))
+  compliers <- dt %>% filter(Compliance == "CO") #Defines the subgroup of true compliers 
+  treat_prot <- dt %>% filter(Z == 1) %>% filter(D == 1) #Defines the observed compliers in the treatment group
+  control_prot <- dt %>% filter(Z == 0) %>% filter(D == 0) #Defines the observed compliers in the control group
+  truth <- mean(compliers$Y1) - mean(compliers$Y0) #True treatment effect in compliers
+  PPE <- mean(treat_prot$Y) - mean(control_prot$Y) #Per-protocol estimate
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(treat_prot$Y)^2/nrow(treat_prot)) + (sd(control_prot$Y)^2/nrow(control_prot)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  fit_IV <- iv_robust(Y ~ D | Z, data = dt)
+  IV <- coef(fit_IV)[2] #IV estimate
+  MSE_IV <- mse(truth,IV)
+  IV_low <- fit_IV$conf.low[2]
+  IV_high <- fit_IV$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  out <- data.frame(
+    i = i,
+    true_always_takers <- true_always_takers,
+    true_never_takers <- true_never_takers,
+    true_compliers <- true_compliers,
+    obs_non_compl <- obs_non_compl,
+    obs_always_takers <- obs_always_takers,
+    obs_never_takers <- obs_never_takers,
+    est_never_taker_freq <- est_never_taker_freq,
+    est_always_taker_freq <- est_always_taker_freq,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+}
+
+
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 16, nrow = nsim))
+x <- c("simulation","true_always_takers","true_never_takers","true_compliers","obs_non_compl","obs_always_takers",
+       "obs_never_takers","est_never_taker_freq","est_always_taker_freq","true_effect","PPE","MSE_PPE","PPE_coverage","IV",
+       "MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+true_always_takers <- mean(estimates$true_always_takers)
+true_never_takers <- mean(estimates$true_never_takers)
+true_compliers <- mean(estimates$true_compliers)
+obs_always_takers <- mean(estimates$obs_always_takers)
+obs_never_takers <- mean(estimates$obs_never_takers)
+est_never_taker_freq <- mean(estimates$est_never_taker_freq)
+est_always_taker_freq <- mean(estimates$est_always_taker_freq)
+observed_non_compliance <- mean(estimates$obs_non_compl)
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias_8 <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias_8 <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True never taker frequency:", round(true_never_takers,2), "\n")
+cat("True always taker frequency:", round(true_always_takers,2), "\n")
+cat("True complier frequency:", round(true_compliers,2), "\n")
+cat("Estimated never taker frequency:", round(est_never_taker_freq,2), "\n")
+cat("Estimated always taker frequency:", round(est_always_taker_freq,2), "\n")
+cat("Observed non-compliance frequency:", round(observed_non_compliance,2), "\n")
+cat("Observed never taker frequency:", round(obs_never_takers,2), "\n")
+cat("Observed always taker frequency:", round(obs_always_takers,2), "\n")
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias_8, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias_8,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+
+The following code chunk implements the Non-Random Non-Compliance Scenario E for severe Non-Randomness ($\delta=0.5$) in the presence of both Never-Takers and Always-Takers for the Binary Compliance case when the true treatment effect is equal to $5$. 
+```{r simulation9}
+set.seed(24)
+simfun <- function(i, n = 350, prob = 0.5, p_nevertakers = 0.25, p_alwaystakers = 0.15, mean0 = 74, mean1 = 69, sd = 1){
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  Category <- c(rep(1, round(p_nevertakers * n)), rep(2, round(p_alwaystakers * n)), 
+                rep(3, n - round(p_nevertakers * n) - round(p_alwaystakers * n)))
+  dt$Category <- sample(Category, n)
+  dt$D0 <- ifelse(dt$Category == 2, 1, 0) 
+  dt$D1 <- ifelse(dt$Category == 3 | dt$Category == 2, 1, 0)
+  dt$D0 <- ifelse(dt$Y0 < mean0 - 0.5, 0, ifelse(dt$Y0 > mean0 + 0.5, 1, dt$D0))
+  dt$D1 <- ifelse(dt$Y0 < mean0 - 0.5, 0, ifelse(dt$Y0 > mean0 + 0.5, 1, dt$D1))
+  dt$Category <- ifelse(dt$Y0 < mean0 - 0.5, 1, ifelse(dt$Y0 > mean0 + 0.5, 2, dt$Category))
+  dt$D <- ifelse(dt$Z == 1, dt$D1, dt$D0)
+  dt$Y <- ifelse(dt$D == 1, dt$Y1, dt$Y0)
+  dt$Compliance <- factor(dt$Category, labels = c("NT", "AT", "CO"))
+  true_always_takers <- nrow(dt %>% filter(Compliance == "AT"))/n #True always takers
+  true_never_takers <- nrow(dt %>% filter(Compliance == "NT"))/n #True never takers
+  true_compliers <- nrow(dt %>% filter(Compliance == "CO"))/n #True compliers
+  obs_non_compl <- length(which(dt$D != dt$Z))/n #Observed non-compliers (observed never-takers and always-takers)
+  obs_always_takers <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/n #Observed always takers 
+  obs_never_takers <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/n #Observed never takers
+  est_never_taker_freq <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/nrow(dt %>% filter(Z == 1))
+  est_always_taker_freq <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/nrow(dt %>% filter(Z == 0))
+  compliers <- dt %>% filter(Compliance == "CO") #Defines the subgroup of true compliers 
+  treat_prot <- dt %>% filter(Z == 1) %>% filter(D == 1) #Defines the observed compliers in the treatment group
+  control_prot <- dt %>% filter(Z == 0) %>% filter(D == 0) #Defines the observed compliers in the control group
+  truth <- mean(compliers$Y1) - mean(compliers$Y0) #True treatment effect in compliers
+  PPE <- mean(treat_prot$Y) - mean(control_prot$Y) #Per-protocol estimate
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(treat_prot$Y)^2/nrow(treat_prot)) + (sd(control_prot$Y)^2/nrow(control_prot)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  fit_IV <- iv_robust(Y ~ D | Z, data = dt)
+  IV <- coef(fit_IV)[2] #IV estimate
+  MSE_IV <- mse(truth,IV)
+  IV_low <- fit_IV$conf.low[2]
+  IV_high <- fit_IV$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  out <- data.frame(
+    i = i,
+    true_always_takers <- true_always_takers,
+    true_never_takers <- true_never_takers,
+    true_compliers <- true_compliers,
+    obs_non_compl <- obs_non_compl,
+    obs_always_takers <- obs_always_takers,
+    obs_never_takers <- obs_never_takers,
+    est_never_taker_freq <- est_never_taker_freq,
+    est_always_taker_freq <- est_always_taker_freq,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+}
+
+
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 16, nrow = nsim))
+x <- c("simulation","true_always_takers","true_never_takers","true_compliers","obs_non_compl","obs_always_takers",
+       "obs_never_takers","est_never_taker_freq","est_always_taker_freq","true_effect","PPE","MSE_PPE","PPE_coverage","IV",
+       "MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+true_always_takers <- mean(estimates$true_always_takers)
+true_never_takers <- mean(estimates$true_never_takers)
+true_compliers <- mean(estimates$true_compliers)
+obs_always_takers <- mean(estimates$obs_always_takers)
+obs_never_takers <- mean(estimates$obs_never_takers)
+est_never_taker_freq <- mean(estimates$est_never_taker_freq)
+est_always_taker_freq <- mean(estimates$est_always_taker_freq)
+observed_non_compliance <- mean(estimates$obs_non_compl)
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias_9 <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias_9 <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True never taker frequency:", round(true_never_takers,2), "\n")
+cat("True always taker frequency:", round(true_always_takers,2), "\n")
+cat("True complier frequency:", round(true_compliers,2), "\n")
+cat("Estimated never taker frequency:", round(est_never_taker_freq,2), "\n")
+cat("Estimated always taker frequency:", round(est_always_taker_freq,2), "\n")
+cat("Observed non-compliance frequency:", round(observed_non_compliance,2), "\n")
+cat("Observed never taker frequency:", round(obs_never_takers,2), "\n")
+cat("Observed always taker frequency:", round(obs_always_takers,2), "\n")
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias_9, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias_9,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+
+The following code chunk implements the Non-Random Non-Compliance Scenario F for severe Non-Randomness ($\delta=0.5$) in the presence of both Never-Takers and Always-Takers for the Binary Compliance case when the true treatment effect is equal to $5$. 
+```{r simulation10}
+set.seed(24)
+simfun <- function(i, n = 350, prob = 0.5, p_nevertakers = 0.25, p_alwaystakers = 0.15, mean0 = 74, mean1 = 69, sd = 1){
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  Category <- c(rep(1, round(p_nevertakers * n)), rep(2, round(p_alwaystakers * n)), 
+                rep(3, n - round(p_nevertakers * n) - round(p_alwaystakers * n)))
+  dt$Category <- sample(Category, n)
+  dt$D0 <- ifelse(dt$Category == 2, 1, 0) 
+  dt$D1 <- ifelse(dt$Category == 3 | dt$Category == 2, 1, 0)
+  dt$D0 <- ifelse(dt$Y0 < mean0 - 0.5, 1, ifelse(dt$Y0 > mean0 + 0.5, 0, dt$D0))
+  dt$D1 <- ifelse(dt$Y0 < mean0 - 0.5, 1, ifelse(dt$Y0 > mean0 + 0.5, 0, dt$D1))
+  dt$Category <- ifelse(dt$Y0 < mean0 - 0.5, 2, ifelse(dt$Y0 > mean0 + 0.5, 1, dt$Category))
+  dt$D <- ifelse(dt$Z == 1, dt$D1, dt$D0)
+  dt$Y <- ifelse(dt$D == 1, dt$Y1, dt$Y0)
+  dt$Compliance <- factor(dt$Category, labels = c("NT", "AT", "CO"))
+  true_always_takers <- nrow(dt %>% filter(Compliance == "AT"))/n #True always takers
+  true_never_takers <- nrow(dt %>% filter(Compliance == "NT"))/n #True never takers
+  true_compliers <- nrow(dt %>% filter(Compliance == "CO"))/n #True compliers
+  obs_non_compl <- length(which(dt$D != dt$Z))/n #Observed non-compliers (observed never-takers and always-takers)
+  obs_always_takers <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/n #Observed always takers 
+  obs_never_takers <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/n #Observed never takers
+  est_never_taker_freq <- nrow(dt %>% filter(Z == 1) %>% filter(D == 0))/nrow(dt %>% filter(Z == 1))
+  est_always_taker_freq <- nrow(dt %>% filter(Z == 0) %>% filter(D == 1))/nrow(dt %>% filter(Z == 0))
+  compliers <- dt %>% filter(Compliance == "CO") #Defines the subgroup of true compliers 
+  treat_prot <- dt %>% filter(Z == 1) %>% filter(D == 1) #Defines the observed compliers in the treatment group
+  control_prot <- dt %>% filter(Z == 0) %>% filter(D == 0) #Defines the observed compliers in the control group
+  truth <- mean(compliers$Y1) - mean(compliers$Y0) #True treatment effect in compliers
+  PPE <- mean(treat_prot$Y) - mean(control_prot$Y) #Per-protocol estimate
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(treat_prot$Y)^2/nrow(treat_prot)) + (sd(control_prot$Y)^2/nrow(control_prot)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  fit_IV <- iv_robust(Y ~ D | Z, data = dt)
+  IV <- coef(fit_IV)[2] #IV estimate
+  MSE_IV <- mse(truth,IV)
+  IV_low <- fit_IV$conf.low[2]
+  IV_high <- fit_IV$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  out <- data.frame(
+    i = i,
+    true_always_takers <- true_always_takers,
+    true_never_takers <- true_never_takers,
+    true_compliers <- true_compliers,
+    obs_non_compl <- obs_non_compl,
+    obs_always_takers <- obs_always_takers,
+    obs_never_takers <- obs_never_takers,
+    est_never_taker_freq <- est_never_taker_freq,
+    est_always_taker_freq <- est_always_taker_freq,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+}
+
+
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 16, nrow = nsim))
+x <- c("simulation","true_always_takers","true_never_takers","true_compliers","obs_non_compl","obs_always_takers",
+       "obs_never_takers","est_never_taker_freq","est_always_taker_freq","true_effect","PPE","MSE_PPE","PPE_coverage","IV",
+       "MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+true_always_takers <- mean(estimates$true_always_takers)
+true_never_takers <- mean(estimates$true_never_takers)
+true_compliers <- mean(estimates$true_compliers)
+obs_always_takers <- mean(estimates$obs_always_takers)
+obs_never_takers <- mean(estimates$obs_never_takers)
+est_never_taker_freq <- mean(estimates$est_never_taker_freq)
+est_always_taker_freq <- mean(estimates$est_always_taker_freq)
+observed_non_compliance <- mean(estimates$obs_non_compl)
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias_10 <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias_10 <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True never taker frequency:", round(true_never_takers,2), "\n")
+cat("True always taker frequency:", round(true_always_takers,2), "\n")
+cat("True complier frequency:", round(true_compliers,2), "\n")
+cat("Estimated never taker frequency:", round(est_never_taker_freq,2), "\n")
+cat("Estimated always taker frequency:", round(est_always_taker_freq,2), "\n")
+cat("Observed non-compliance frequency:", round(observed_non_compliance,2), "\n")
+cat("Observed never taker frequency:", round(obs_never_takers,2), "\n")
+cat("Observed always taker frequency:", round(obs_always_takers,2), "\n")
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias_10, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias_10,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+
+For the Partial Compliance we vary the following factors,
+\begin{enumerate}
+ \item True Treatment Effect,
+ \item Type of Non-Compliers,
+ \item Randomness of Non-compliers (For the Non-Random case we consider severe and mild Non-Randomness),
+ \item Compliance Threshold 
+\end{enumerate}
+
+The following code chunk implements the Random Non-Compliance case in the presence of both Never-Takers and Always-Takers for the Partial Compliance case and Case I for the Threshold when the true treatment effect is equal to $5$. 
+```{r simulation11}
+set.seed(24)
+simfun <- function(i, n=350, mean0 = 74, mean1 = 69, sd = 1, prob = 0.5){
+  #Data Generating Mechanism (DGM)
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  
+  control <- dt %>% filter(Z == 0)
+  treatment <- dt %>% filter(Z == 1)
+  
+  #Allocation of D and calculation of Y
+  D_values_control <- c(0, 1/4, 1/2, 3/4, 1)
+  D_probabilities_control <- c(0.5, 0.2, 0.1, 0.1, 0.1)
+  control$D <- sample(D_values_control, nrow(control), replace = TRUE, prob = D_probabilities_control)
+  D_values_treatment <- c(1, 3/4, 1/2, 1/4, 0)
+  D_probabilities_treatment <- c(0.5, 0.2, 0.1, 0.1, 0.1)
+  treatment$D <- sample(D_values_treatment, nrow(treatment), replace = TRUE, prob = D_probabilities_treatment)
+  dt <- bind_rows(control, treatment)
+  dt$Y <- (dt$D)*(dt$Y1) + (1-dt$D)*(dt$Y0)
+  
+  #Defining the threshold and calculating the estimates
+  true_compl_trt <- dt %>% filter(Z == 1) %>% filter(D == 1) 
+  true_compl_ctr <- dt %>% filter(Z == 0) %>% filter(D == 0) 
+  true_compliers <- rbind(true_compl_trt,true_compl_ctr)
+  truth <- mean(true_compliers$Y1) - mean(true_compliers$Y0)
+  PPE <- mean(true_compl_trt$Y) - mean(true_compl_ctr$Y)
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(true_compl_trt$Y)^2/nrow(true_compl_trt)) + (sd(true_compl_ctr$Y)^2/nrow(true_compl_ctr)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  IV_fit <- iv_robust(Y ~ D | Z, data=dt)
+  IV <- coef(IV_fit)[2]
+  MSE_IV <- mse(truth,IV)
+  IV_low <- IV_fit$conf.low[2]
+  IV_high <- IV_fit$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  
+  out <- data.frame(
+    i = i,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+  
+}
+
+
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 8, nrow = nsim))
+x <- c("simulation","true_effect","PPE","MSE_PPE","PPE_coverage","IV","MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias_11 <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias_11 <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias_11, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias_11,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+
+The following code chunk implements the Non-Random Non-Compliance Scenario A for severe Non-Randomness ($\delta=0.5$) in the presence of both Never-Takers and Always-Takers for the Partial Compliance case and Case I for the Threshold when the true treatment effect is equal to $5$. 
+```{r simulation12}
+set.seed(24)
+simfun <- function(i, n=350, mean0 = 74, mean1 = 69, sd = 1, prob = 0.5){
+  #Data Generating Mechanism (DGM)
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  
+  control <- dt %>% filter(Z == 0)
+  treatment <- dt %>% filter(Z == 1)
+  
+  #Random allocation of D and calculation of Y
+  D_values_control <- c(0, 1/4, 1/2, 3/4, 1)
+  D_probabilities_control <- c(0.5, 0.2, 0.1, 0.1, 0.1)
+  control$D <- sample(D_values_control, nrow(control), replace = TRUE, prob = D_probabilities_control)
+  D_values_treatment <- c(1, 3/4, 1/2, 1/4, 0)
+  D_probabilities_treatment <- c(0.5, 0.2, 0.1, 0.1, 0.1)
+  treatment$D <- sample(D_values_treatment, nrow(treatment), replace = TRUE, prob = D_probabilities_treatment)
+  dt <- bind_rows(control, treatment)
+  #Impose the condition of Scenario A
+  dt$D <- ifelse(dt$Y0 < mean0 - 0.5, 0, dt$D)
+  dt$Y <- (dt$D)*(dt$Y1) + (1-dt$D)*(dt$Y0)
+  
+  #Defining the threshold and calculating the estimates
+  true_compl_trt <- dt %>% filter(Z == 1) %>% filter(D == 1) 
+  true_compl_ctr <- dt %>% filter(Z == 0) %>% filter(D == 0) 
+  true_compliers <- rbind(true_compl_trt,true_compl_ctr)
+  truth <- mean(true_compliers$Y1) - mean(true_compliers$Y0)
+  PPE <- mean(true_compl_trt$Y) - mean(true_compl_ctr$Y)
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(true_compl_trt$Y)^2/nrow(true_compl_trt)) + (sd(true_compl_ctr$Y)^2/nrow(true_compl_ctr)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  IV_fit <- iv_robust(Y ~ D | Z, data=dt)
+  IV <- coef(IV_fit)[2]
+  MSE_IV <- mse(truth,IV)
+  IV_low <- IV_fit$conf.low[2]
+  IV_high <- IV_fit$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  
+  out <- data.frame(
+    i = i,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+  
+}
+
+
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 8, nrow = nsim))
+x <- c("simulation","true_effect","PPE","MSE_PPE","PPE_coverage","IV","MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias_12 <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias_12 <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias_12, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias_12,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+
+The following code chunk implements the Non-Random Non-Compliance Scenario B for severe Non-Randomness ($\delta=0.5$) in the presence of both Never-Takers and Always-Takers for the Partial Compliance case and Case I for the Threshold when the true treatment effect is equal to $5$. 
+```{r simulation13}
+set.seed(24)
+simfun <- function(i, n=350, mean0 = 74, mean1 = 69, sd = 1, prob = 0.5){
+  #Data Generating Mechanism (DGM)
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  
+  control <- dt %>% filter(Z == 0)
+  treatment <- dt %>% filter(Z == 1)
+  
+  #Random allocation of D and calculation of Y
+  D_values_control <- c(0, 1/4, 1/2, 3/4, 1)
+  D_probabilities_control <- c(0.5, 0.2, 0.1, 0.1, 0.1)
+  control$D <- sample(D_values_control, nrow(control), replace = TRUE, prob = D_probabilities_control)
+  D_values_treatment <- c(1, 3/4, 1/2, 1/4, 0)
+  D_probabilities_treatment <- c(0.5, 0.2, 0.1, 0.1, 0.1)
+  treatment$D <- sample(D_values_treatment, nrow(treatment), replace = TRUE, prob = D_probabilities_treatment)
+  dt <- bind_rows(control, treatment)
+  #Impose the condition of Scenario B
+  dt$D <- ifelse(dt$Y0 > mean0 + 0.5, 0, dt$D)
+  dt$Y <- (dt$D)*(dt$Y1) + (1-dt$D)*(dt$Y0)
+  
+  #Defining the threshold and calculating the estimates
+  true_compl_trt <- dt %>% filter(Z == 1) %>% filter(D == 1) 
+  true_compl_ctr <- dt %>% filter(Z == 0) %>% filter(D == 0) 
+  true_compliers <- rbind(true_compl_trt,true_compl_ctr)
+  truth <- mean(true_compliers$Y1) - mean(true_compliers$Y0)
+  PPE <- mean(true_compl_trt$Y) - mean(true_compl_ctr$Y)
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(true_compl_trt$Y)^2/nrow(true_compl_trt)) + (sd(true_compl_ctr$Y)^2/nrow(true_compl_ctr)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  IV_fit <- iv_robust(Y ~ D | Z, data=dt)
+  IV <- coef(IV_fit)[2]
+  MSE_IV <- mse(truth,IV)
+  IV_low <- IV_fit$conf.low[2]
+  IV_high <- IV_fit$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  
+  out <- data.frame(
+    i = i,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+  
+}
+
+
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 8, nrow = nsim))
+x <- c("simulation","true_effect","PPE","MSE_PPE","PPE_coverage","IV","MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias_13 <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias_13 <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias_13, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias_13,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+
+The following code chunk implements the Non-Random Non-Compliance Scenario C for severe Non-Randomness ($\delta=0.5$) in the presence of both Never-Takers and Always-Takers for the Partial Compliance case and Case I for the Threshold when the true treatment effect is equal to $5$. 
+```{r simulation14} 
+set.seed(24)
+simfun <- function(i, n=350, mean0 = 74, mean1 = 69, sd = 1, prob = 0.5){
+  #Data Generating Mechanism (DGM)
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  
+  control <- dt %>% filter(Z == 0)
+  treatment <- dt %>% filter(Z == 1)
+  
+  #Random allocation of D and calculation of Y
+  D_values_control <- c(0, 1/4, 1/2, 3/4, 1)
+  D_probabilities_control <- c(0.5, 0.2, 0.1, 0.1, 0.1)
+  control$D <- sample(D_values_control, nrow(control), replace = TRUE, prob = D_probabilities_control)
+  D_values_treatment <- c(1, 3/4, 1/2, 1/4, 0)
+  D_probabilities_treatment <- c(0.5, 0.2, 0.1, 0.1, 0.1)
+  treatment$D <- sample(D_values_treatment, nrow(treatment), replace = TRUE, prob = D_probabilities_treatment)
+  dt <- bind_rows(control, treatment)
+  #Impose the condition of Scenario C
+  dt$D <- ifelse(dt$Y0 < mean0 - 0.5, 1, dt$D)
+  dt$Y <- (dt$D)*(dt$Y1) + (1-dt$D)*(dt$Y0)
+  
+  #Defining the threshold and calculating the estimates
+  true_compl_trt <- dt %>% filter(Z == 1) %>% filter(D == 1) 
+  true_compl_ctr <- dt %>% filter(Z == 0) %>% filter(D == 0) 
+  true_compliers <- rbind(true_compl_trt,true_compl_ctr)
+  truth <- mean(true_compliers$Y1) - mean(true_compliers$Y0)
+  PPE <- mean(true_compl_trt$Y) - mean(true_compl_ctr$Y)
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(true_compl_trt$Y)^2/nrow(true_compl_trt)) + (sd(true_compl_ctr$Y)^2/nrow(true_compl_ctr)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  IV_fit <- iv_robust(Y ~ D | Z, data=dt)
+  IV <- coef(IV_fit)[2]
+  MSE_IV <- mse(truth,IV)
+  IV_low <- IV_fit$conf.low[2]
+  IV_high <- IV_fit$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  
+  out <- data.frame(
+    i = i,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+  
+}
+
+
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 8, nrow = nsim))
+x <- c("simulation","true_effect","PPE","MSE_PPE","PPE_coverage","IV","MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias_14 <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias_14 <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias_14, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias_14,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+
+The following code chunk implements the Non-Random Non-Compliance Scenario D for severe Non-Randomness ($\delta=0.5$) in the presence of both Never-Takers and Always-Takers for the Partial Compliance case and Case I for the Threshold when the true treatment effect is equal to $5$. 
+```{r simulation15}
+set.seed(24)
+simfun <- function(i, n=350, mean0 = 74, mean1 = 69, sd = 1, prob = 0.5){
+  #Data Generating Mechanism (DGM)
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  
+  control <- dt %>% filter(Z == 0)
+  treatment <- dt %>% filter(Z == 1)
+  
+  #Random allocation of D and calculation of Y
+  D_values_control <- c(0, 1/4, 1/2, 3/4, 1)
+  D_probabilities_control <- c(0.5, 0.2, 0.1, 0.1, 0.1)
+  control$D <- sample(D_values_control, nrow(control), replace = TRUE, prob = D_probabilities_control)
+  D_values_treatment <- c(1, 3/4, 1/2, 1/4, 0)
+  D_probabilities_treatment <- c(0.5, 0.2, 0.1, 0.1, 0.1)
+  treatment$D <- sample(D_values_treatment, nrow(treatment), replace = TRUE, prob = D_probabilities_treatment)
+  dt <- bind_rows(control, treatment)
+  #Impose the condition of Scenario D
+  dt$D <- ifelse(dt$Y0 > mean0 + 0.5, 1, dt$D)
+  dt$Y <- (dt$D)*(dt$Y1) + (1-dt$D)*(dt$Y0)
+  
+  #Defining the threshold and calculating the estimates
+  true_compl_trt <- dt %>% filter(Z == 1) %>% filter(D == 1) 
+  true_compl_ctr <- dt %>% filter(Z == 0) %>% filter(D == 0) 
+  true_compliers <- rbind(true_compl_trt,true_compl_ctr)
+  truth <- mean(true_compliers$Y1) - mean(true_compliers$Y0)
+  PPE <- mean(true_compl_trt$Y) - mean(true_compl_ctr$Y)
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(true_compl_trt$Y)^2/nrow(true_compl_trt)) + (sd(true_compl_ctr$Y)^2/nrow(true_compl_ctr)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  IV_fit <- iv_robust(Y ~ D | Z, data=dt)
+  IV <- coef(IV_fit)[2]
+  MSE_IV <- mse(truth,IV)
+  IV_low <- IV_fit$conf.low[2]
+  IV_high <- IV_fit$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  
+  out <- data.frame(
+    i = i,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+  
+}
+
+
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 8, nrow = nsim))
+x <- c("simulation","true_effect","PPE","MSE_PPE","PPE_coverage","IV","MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias_15 <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias_15 <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias_15, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias_15,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+
+The following code chunk implements the Non-Random Non-Compliance Scenario E for severe Non-Randomness ($\delta=0.5$) in the presence of both Never-Takers and Always-Takers for the Partial Compliance case and Case I for the Threshold when the true treatment effect is equal to $5$. 
+```{r simulation16}
+set.seed(24)
+simfun <- function(i, n=350, mean0 = 74, mean1 = 69, sd = 1, prob = 0.5){
+  #Data Generating Mechanism (DGM)
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  
+  control <- dt %>% filter(Z == 0)
+  treatment <- dt %>% filter(Z == 1)
+  
+  #Random allocation of D and calculation of Y
+  D_values_control <- c(0, 1/4, 1/2, 3/4, 1)
+  D_probabilities_control <- c(0.5, 0.2, 0.1, 0.1, 0.1)
+  control$D <- sample(D_values_control, nrow(control), replace = TRUE, prob = D_probabilities_control)
+  D_values_treatment <- c(1, 3/4, 1/2, 1/4, 0)
+  D_probabilities_treatment <- c(0.5, 0.2, 0.1, 0.1, 0.1)
+  treatment$D <- sample(D_values_treatment, nrow(treatment), replace = TRUE, prob = D_probabilities_treatment)
+  dt <- bind_rows(control, treatment)
+  #Impose the condition of Scenario E
+  dt$D <- ifelse(dt$Y0 < mean0 - 0.5, 0, ifelse(dt$Y0 > mean0 + 0.5, 1, dt$D))
+  dt$Y <- (dt$D)*(dt$Y1) + (1-dt$D)*(dt$Y0)
+  
+  #Defining the threshold and calculating the estimates
+  true_compl_trt <- dt %>% filter(Z == 1) %>% filter(D == 1) 
+  true_compl_ctr <- dt %>% filter(Z == 0) %>% filter(D == 0) 
+  true_compliers <- rbind(true_compl_trt,true_compl_ctr)
+  truth <- mean(true_compliers$Y1) - mean(true_compliers$Y0)
+  PPE <- mean(true_compl_trt$Y) - mean(true_compl_ctr$Y)
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(true_compl_trt$Y)^2/nrow(true_compl_trt)) + (sd(true_compl_ctr$Y)^2/nrow(true_compl_ctr)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  IV_fit <- iv_robust(Y ~ D | Z, data=dt)
+  IV <- coef(IV_fit)[2]
+  MSE_IV <- mse(truth,IV)
+  IV_low <- IV_fit$conf.low[2]
+  IV_high <- IV_fit$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  
+  out <- data.frame(
+    i = i,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+  
+}
+
+
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 8, nrow = nsim))
+x <- c("simulation","true_effect","PPE","MSE_PPE","PPE_coverage","IV","MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias_16 <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias_16 <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias_16, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias_16,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+
+The following code chunk implements the Non-Random Non-Compliance Scenario F for severe Non-Randomness ($\delta=0.5$) in the presence of both Never-Takers and Always-Takers for the Partial Compliance case and Case I for the Threshold when the true treatment effect is equal to $5$. 
+```{r simulation17}
+set.seed(24)
+simfun <- function(i, n=350, mean0 = 74, mean1 = 69, sd = 1, prob = 0.5){
+  #Data Generating Mechanism (DGM)
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  
+  control <- dt %>% filter(Z == 0)
+  treatment <- dt %>% filter(Z == 1)
+  
+  #Random allocation of D and calculation of Y
+  D_values_control <- c(0, 1/4, 1/2, 3/4, 1)
+  D_probabilities_control <- c(0.5, 0.2, 0.1, 0.1, 0.1)
+  control$D <- sample(D_values_control, nrow(control), replace = TRUE, prob = D_probabilities_control)
+  D_values_treatment <- c(1, 3/4, 1/2, 1/4, 0)
+  D_probabilities_treatment <- c(0.5, 0.2, 0.1, 0.1, 0.1)
+  treatment$D <- sample(D_values_treatment, nrow(treatment), replace = TRUE, prob = D_probabilities_treatment)
+  dt <- bind_rows(control, treatment)
+  #Impose the condition of Scenario F
+  dt$D <- ifelse(dt$Y0 < mean0 - 0.5, 1, ifelse(dt$Y0 > mean0 + 0.5, 0, dt$D))
+  dt$Y <- (dt$D)*(dt$Y1) + (1-dt$D)*(dt$Y0)
+  
+  #Defining the threshold and calculating the estimates
+  true_compl_trt <- dt %>% filter(Z == 1) %>% filter(D == 1) 
+  true_compl_ctr <- dt %>% filter(Z == 0) %>% filter(D == 0) 
+  true_compliers <- rbind(true_compl_trt,true_compl_ctr)
+  truth <- mean(true_compliers$Y1) - mean(true_compliers$Y0)
+  PPE <- mean(true_compl_trt$Y) - mean(true_compl_ctr$Y)
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(true_compl_trt$Y)^2/nrow(true_compl_trt)) + (sd(true_compl_ctr$Y)^2/nrow(true_compl_ctr)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  IV_fit <- iv_robust(Y ~ D | Z, data=dt)
+  IV <- coef(IV_fit)[2]
+  MSE_IV <- mse(truth,IV)
+  IV_low <- IV_fit$conf.low[2]
+  IV_high <- IV_fit$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  
+  out <- data.frame(
+    i = i,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+  
+}
+
+
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 8, nrow = nsim))
+x <- c("simulation","true_effect","PPE","MSE_PPE","PPE_coverage","IV","MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias_17 <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias_17 <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias_17, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias_17,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+
+The following code chunk implements the Non-Random Non-Compliance Scenario G for severe Non-Randomness in the presence of both Never-Takers and Always-Takers for the Partial Compliance case and Case I for the Threshold when the true treatment effect is equal to $5$. 
+```{r simulation18}
+set.seed(24)
+simfun <- function(i, n=350, mean0 = 74, mean1 = 69, sd = 1, prob = 0.5){
+  #Data Generating Mechanism (DGM)
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  
+  control <- dt %>% filter(Z == 0)
+  treatment <- dt %>% filter(Z == 1)
+  
+  #Random allocation of D and calculation of Y
+  D_values_control <- c(0, 1/4, 1/2, 3/4, 1)
+  D_probabilities_control <- c(0.5, 0.2, 0.1, 0.1, 0.1)
+  control$D <- sample(D_values_control, nrow(control), replace = TRUE, prob = D_probabilities_control)
+  D_values_treatment <- c(1, 3/4, 1/2, 1/4, 0)
+  D_probabilities_treatment <- c(0.5, 0.2, 0.1, 0.1, 0.1)
+  treatment$D <- sample(D_values_treatment, nrow(treatment), replace = TRUE, prob = D_probabilities_treatment)
+  dt <- bind_rows(control, treatment)
+  #Impose the condition of Scenario G
+  dt$D <- ifelse(dt$Y0 < mean0 - 0.5, 0, ifelse((mean0 < dt$Y0 & dt$Y0 < mean0 + 0.15), 1/4, ifelse(mean0 + 0.15 < dt$Y0 & dt$Y0 < mean0 + 0.3, 1/2, ifelse((mean0 + 0.3 < dt$Y0 & dt$Y0 < mean0 + 0.5), 3/4, ifelse(dt$Y0 > mean0 + 0.5, 1, dt$D)))))
+  
+  
+  dt$Y <- (dt$D)*(dt$Y1) + (1-dt$D)*(dt$Y0)
+  
+  #Defining the threshold and calculating the estimates
+  true_compl_trt <- dt %>% filter(Z == 1) %>% filter(D == 1) 
+  true_compl_ctr <- dt %>% filter(Z == 0) %>% filter(D == 0) 
+  true_compliers <- rbind(true_compl_trt,true_compl_ctr)
+  truth <- mean(true_compliers$Y1) - mean(true_compliers$Y0)
+  PPE <- mean(true_compl_trt$Y) - mean(true_compl_ctr$Y)
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(true_compl_trt$Y)^2/nrow(true_compl_trt)) + (sd(true_compl_ctr$Y)^2/nrow(true_compl_ctr)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  IV_fit <- iv_robust(Y ~ D | Z, data=dt)
+  IV <- coef(IV_fit)[2]
+  MSE_IV <- mse(truth,IV)
+  IV_low <- IV_fit$conf.low[2]
+  IV_high <- IV_fit$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  
+  out <- data.frame(
+    i = i,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+  
+}
+
+
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 8, nrow = nsim))
+x <- c("simulation","true_effect","PPE","MSE_PPE","PPE_coverage","IV","MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias_18 <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias_18 <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias_18, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias_18,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+
+The following code chunk implements the Non-Random Non-Compliance Scenario H for severe Non-Randomness in the presence of both Never-Takers and Always-Takers for the Partial Compliance case and Case I for the Threshold when the true treatment effect is equal to $5$. 
+```{r simulation19}
+set.seed(24)
+simfun <- function(i, n=350, mean0 = 74, mean1 = 69, sd = 1, prob = 0.5){
+  #Data Generating Mechanism (DGM)
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  
+  control <- dt %>% filter(Z == 0)
+  treatment <- dt %>% filter(Z == 1)
+  
+  #Random allocation of D and calculation of Y
+  D_values_control <- c(0, 1/4, 1/2, 3/4, 1)
+  D_probabilities_control <- c(0.5, 0.2, 0.1, 0.1, 0.1)
+  control$D <- sample(D_values_control, nrow(control), replace = TRUE, prob = D_probabilities_control)
+  D_values_treatment <- c(1, 3/4, 1/2, 1/4, 0)
+  D_probabilities_treatment <- c(0.5, 0.2, 0.1, 0.1, 0.1)
+  treatment$D <- sample(D_values_treatment, nrow(treatment), replace = TRUE, prob = D_probabilities_treatment)
+  dt <- bind_rows(control, treatment)
+  #Impose the condition of Scenario A
+  dt$D <- ifelse(dt$Y0 < mean0 - 0.5, 1, ifelse((mean0 - 0.5 < dt$Y0 & dt$Y0 < mean0 - 0.3), 3/4, ifelse(mean0 - 0.3 < dt$Y0 & dt$Y0 < mean0 - 0.15, 1/2,
+                                                 ifelse((mean0 - 0.15 < dt$Y0 & dt$Y0 < mean0), 1/4, ifelse(dt$Y0 > mean0 + 0.5, 0, dt$D)))))
+  
+  
+  dt$Y <- (dt$D)*(dt$Y1) + (1-dt$D)*(dt$Y0)
+  
+  #Defining the threshold and calculating the estimates
+  true_compl_trt <- dt %>% filter(Z == 1) %>% filter(D == 1) 
+  true_compl_ctr <- dt %>% filter(Z == 0) %>% filter(D == 0) 
+  true_compliers <- rbind(true_compl_trt,true_compl_ctr)
+  truth <- mean(true_compliers$Y1) - mean(true_compliers$Y0)
+  PPE <- mean(true_compl_trt$Y) - mean(true_compl_ctr$Y)
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(true_compl_trt$Y)^2/nrow(true_compl_trt)) + (sd(true_compl_ctr$Y)^2/nrow(true_compl_ctr)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  IV_fit <- iv_robust(Y ~ D | Z, data=dt)
+  IV <- coef(IV_fit)[2]
+  MSE_IV <- mse(truth,IV)
+  IV_low <- IV_fit$conf.low[2]
+  IV_high <- IV_fit$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  
+  out <- data.frame(
+    i = i,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+  
+}
+
+
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 8, nrow = nsim))
+x <- c("simulation","true_effect","PPE","MSE_PPE","PPE_coverage","IV","MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias_19 <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias_19 <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias_19, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias_19,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+
+The following code chunk implements the Random Non-Compliance case in the presence of Never-Takers only for the Partial Compliance case and Case I for the Threshold when the true treatment effect is equal to $5$. 
+```{r simulation20}
+set.seed(24)
+simfun <- function(i, n=350, mean0 = 74, mean1 = 69, sd = 1, prob = 0.5){
+  #Data Generating Mechanism (DGM)
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  
+  control <- dt %>% filter(Z == 0)
+  treatment <- dt %>% filter(Z == 1)
+  
+  #Allocation of D and calculation of Y
+  control$D <- 0
+  D_values_treatment <- c(1, 3/4, 1/2, 1/4, 0)
+  D_probabilities_treatment <- c(0.5, 0.2, 0.1, 0.1, 0.1)
+  treatment$D <- sample(D_values_treatment, nrow(treatment), replace = TRUE, prob = D_probabilities_treatment)
+  dt <- bind_rows(control, treatment)
+  dt$Y <- (dt$D)*(dt$Y1) + (1-dt$D)*(dt$Y0)
+  
+  #Defining the threshold and calculating the estimates
+  true_compl_trt <- dt %>% filter(Z == 1) %>% filter(D == 1) 
+  true_compl_ctr <- dt %>% filter(Z == 0) %>% filter(D == 0) 
+  true_compliers <- rbind(true_compl_trt,true_compl_ctr)
+  truth <- mean(true_compliers$Y1) - mean(true_compliers$Y0)
+  PPE <- mean(true_compl_trt$Y) - mean(true_compl_ctr$Y)
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(true_compl_trt$Y)^2/nrow(true_compl_trt)) + (sd(true_compl_ctr$Y)^2/nrow(true_compl_ctr)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  IV_fit <- iv_robust(Y ~ D | Z, data=dt)
+  IV <- coef(IV_fit)[2]
+  MSE_IV <- mse(truth,IV)
+  IV_low <- IV_fit$conf.low[2]
+  IV_high <- IV_fit$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  
+  out <- data.frame(
+    i = i,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+  
+}
+
+
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 8, nrow = nsim))
+x <- c("simulation","true_effect","PPE","MSE_PPE","PPE_coverage","IV","MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias_20 <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias_20 <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias_20, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias_20,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+
+The following code chunk implements the Non-Random Non-Compliance Scenario A for severe Non-Randomness ($\delta=0.5$) in the presence of Never-Takers only for the Partial Compliance case and Case I for the Threshold when the true treatment effect is equal to $5$. 
+```{r simulation21}
+set.seed(24)
+simfun <- function(i, n=350, mean0 = 74, mean1 = 69, sd = 1, prob = 0.5){
+  #Data Generating Mechanism (DGM)
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  
+  control <- dt %>% filter(Z == 0)
+  treatment <- dt %>% filter(Z == 1)
+  
+  #Random allocation of D and calculation of Y
+  control$D <- 0
+  D_values_treatment <- c(1, 3/4, 1/2, 1/4, 0)
+  D_probabilities_treatment <- c(0.5, 0.2, 0.1, 0.1, 0.1)
+  treatment$D <- sample(D_values_treatment, nrow(treatment), replace = TRUE, prob = D_probabilities_treatment)
+  dt <- bind_rows(control, treatment)
+  #Impose the condition of Scenario A
+  dt$D <- ifelse(dt$Y0 < mean0 - 0.5, 0, dt$D)
+  dt$Y <- (dt$D)*(dt$Y1) + (1-dt$D)*(dt$Y0)
+  
+  #Defining the threshold and calculating the estimates
+  true_compl_trt <- dt %>% filter(Z == 1) %>% filter(D == 1) 
+  true_compl_ctr <- dt %>% filter(Z == 0) %>% filter(D == 0) 
+  true_compliers <- rbind(true_compl_trt,true_compl_ctr)
+  truth <- mean(true_compliers$Y1) - mean(true_compliers$Y0)
+  PPE <- mean(true_compl_trt$Y) - mean(true_compl_ctr$Y)
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(true_compl_trt$Y)^2/nrow(true_compl_trt)) + (sd(true_compl_ctr$Y)^2/nrow(true_compl_ctr)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  IV_fit <- iv_robust(Y ~ D | Z, data=dt)
+  IV <- coef(IV_fit)[2]
+  MSE_IV <- mse(truth,IV)
+  IV_low <- IV_fit$conf.low[2]
+  IV_high <- IV_fit$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  
+  out <- data.frame(
+    i = i,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+  
+}
+
+
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 8, nrow = nsim))
+x <- c("simulation","true_effect","PPE","MSE_PPE","PPE_coverage","IV","MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias_21 <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias_21 <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias_21, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias_21,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+
+The following code chunk implements the Non-Random Non-Compliance Scenario B for severe Non-Randomness ($\delta=0.5$) in the presence of Never-Takers only for the Partial Compliance case and Case I for the Threshold when the true treatment effect is equal to $5$. 
+```{r simulation22}
+set.seed(24)
+simfun <- function(i, n=350, mean0 = 74, mean1 = 69, sd = 1, prob = 0.5){
+  #Data Generating Mechanism (DGM)
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  
+  control <- dt %>% filter(Z == 0)
+  treatment <- dt %>% filter(Z == 1)
+  
+  #Random allocation of D and calculation of Y
+  control$D <- 0
+  D_values_treatment <- c(1, 3/4, 1/2, 1/4, 0)
+  D_probabilities_treatment <- c(0.5, 0.2, 0.1, 0.1, 0.1)
+  treatment$D <- sample(D_values_treatment, nrow(treatment), replace = TRUE, prob = D_probabilities_treatment)
+  dt <- bind_rows(control, treatment)
+  #Impose the condition of Scenario B
+  dt$D <- ifelse(dt$Y0 > mean0 + 0.5, 0, dt$D)
+  dt$Y <- (dt$D)*(dt$Y1) + (1-dt$D)*(dt$Y0)
+  
+  #Defining the threshold and calculating the estimates
+  true_compl_trt <- dt %>% filter(Z == 1) %>% filter(D == 1) 
+  true_compl_ctr <- dt %>% filter(Z == 0) %>% filter(D == 0) 
+  true_compliers <- rbind(true_compl_trt,true_compl_ctr)
+  truth <- mean(true_compliers$Y1) - mean(true_compliers$Y0)
+  PPE <- mean(true_compl_trt$Y) - mean(true_compl_ctr$Y)
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(true_compl_trt$Y)^2/nrow(true_compl_trt)) + (sd(true_compl_ctr$Y)^2/nrow(true_compl_ctr)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  IV_fit <- iv_robust(Y ~ D | Z, data=dt)
+  IV <- coef(IV_fit)[2]
+  MSE_IV <- mse(truth,IV)
+  IV_low <- IV_fit$conf.low[2]
+  IV_high <- IV_fit$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  
+  out <- data.frame(
+    i = i,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+  
+}
+
+
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 8, nrow = nsim))
+x <- c("simulation","true_effect","PPE","MSE_PPE","PPE_coverage","IV","MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias_22 <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias_22 <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias_22, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias_22,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+
+The following code chunk implements the Non-Random Non-Compliance Scenario G for severe Non-Randomness in the presence of Never-Takers only for the Partial Compliance case and Case I for the Threshold when the true treatment effect is equal to $5$. 
+```{r simulation23}
+set.seed(24)
+simfun <- function(i, n=350, mean0 = 74, mean1 = 69, sd = 1, prob = 0.5){
+  #Data Generating Mechanism (DGM)
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  
+  control <- dt %>% filter(Z == 0)
+  treatment <- dt %>% filter(Z == 1)
+  
+  #Random allocation of D and calculation of Y
+  control$D <- 0
+  D_values_treatment <- c(1, 3/4, 1/2, 1/4, 0)
+  D_probabilities_treatment <- c(0.5, 0.2, 0.1, 0.1, 0.1)
+  treatment$D <- sample(D_values_treatment, nrow(treatment), replace = TRUE, prob = D_probabilities_treatment)
+  treatment$D <- ifelse(treatment$Y0 < mean0 - 0.5, 0, ifelse((mean0 < treatment$Y0 & treatment$Y0 < mean0 + 0.15), 1/4, ifelse(mean0 + 0.15 < treatment$Y0 & treatment$Y0 < mean0 + 0.3, 1/2, ifelse((mean0 + 0.3 < treatment$Y0 & treatment$Y0 < mean0 + 0.5), 3/4, ifelse(treatment$Y0 > mean0 + 0.5, 1, treatment$D)))))
+  
+  dt <- bind_rows(control, treatment)
+  dt$Y <- (dt$D)*(dt$Y1) + (1-dt$D)*(dt$Y0)
+  
+  #Defining the threshold and calculating the estimates
+  true_compl_trt <- dt %>% filter(Z == 1) %>% filter(D == 1) 
+  true_compl_ctr <- dt %>% filter(Z == 0) %>% filter(D == 0) 
+  true_compliers <- rbind(true_compl_trt,true_compl_ctr)
+  truth <- mean(true_compliers$Y1) - mean(true_compliers$Y0)
+  PPE <- mean(true_compl_trt$Y) - mean(true_compl_ctr$Y)
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(true_compl_trt$Y)^2/nrow(true_compl_trt)) + (sd(true_compl_ctr$Y)^2/nrow(true_compl_ctr)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  IV_fit <- iv_robust(Y ~ D | Z, data=dt)
+  IV <- coef(IV_fit)[2]
+  MSE_IV <- mse(truth,IV)
+  IV_low <- IV_fit$conf.low[2]
+  IV_high <- IV_fit$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  
+  out <- data.frame(
+    i = i,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+  
+}
+
+
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 8, nrow = nsim))
+x <- c("simulation","true_effect","PPE","MSE_PPE","PPE_coverage","IV","MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias_23 <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias_23 <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias_23, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias_23,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+
+The following code chunk implements the Non-Random Non-Compliance Scenario H for severe Non-Randomness in the presence of Never-Takers only for the Partial Compliance case and Case I for the Threshold when the true treatment effect is equal to $5$. 
+```{r simulation24}
+set.seed(24)
+simfun <- function(i, n=350, mean0 = 74, mean1 = 69, sd = 1, prob = 0.5){
+  #Data Generating Mechanism (DGM)
+  dt <- data.frame(
+    ID = 1:n,
+    Y0 = rnorm(n, mean = mean0, sd = sd), 
+    Y1 = rnorm(n, mean = mean1, sd = sd),
+    Z = rbinom(n = n, size = 1, prob = prob))
+  
+  control <- dt %>% filter(Z == 0)
+  treatment <- dt %>% filter(Z == 1)
+  
+  #Random allocation of D and calculation of Y
+  control$D <- 0
+  D_values_treatment <- c(1, 3/4, 1/2, 1/4, 0)
+  D_probabilities_treatment <- c(0.5, 0.2, 0.1, 0.1, 0.1)
+  treatment$D <- sample(D_values_treatment, nrow(treatment), replace = TRUE, prob = D_probabilities_treatment)
+  treatment$D <- ifelse(treatment$Y0 < mean0 - 0.5, 1, ifelse((mean0 - 0.5 < treatment$Y0 & treatment$Y0 < mean0 - 0.3), 3/4, ifelse(mean0 - 0.3 < treatment$Y0 & treatment$Y0 < mean0 - 0.15, 1/2, ifelse((mean0 - 0.15 < treatment$Y0 & treatment$Y0 < mean0), 1/4, ifelse(treatment$Y0 > mean0 + 0.5, 0, treatment$D)))))
+  
+  dt <- bind_rows(control, treatment)
+  dt$Y <- (dt$D)*(dt$Y1) + (1-dt$D)*(dt$Y0)
+  
+  #Defining the threshold and calculating the estimates
+  true_compl_trt <- dt %>% filter(Z == 1) %>% filter(D == 1) 
+  true_compl_ctr <- dt %>% filter(Z == 0) %>% filter(D == 0) 
+  true_compliers <- rbind(true_compl_trt,true_compl_ctr)
+  truth <- mean(true_compliers$Y1) - mean(true_compliers$Y0)
+  PPE <- mean(true_compl_trt$Y) - mean(true_compl_ctr$Y)
+  MSE_PPE <- mse(truth,PPE)
+  PPE_SE <- sqrt((sd(true_compl_trt$Y)^2/nrow(true_compl_trt)) + (sd(true_compl_ctr$Y)^2/nrow(true_compl_ctr)))
+  PPE_low <- PPE - qnorm(0.975)*PPE_SE
+  PPE_high <- PPE + qnorm(0.975)*PPE_SE
+  PPE_coverage <- PPE_low <= truth & truth <= PPE_high
+  IV_fit <- iv_robust(Y ~ D | Z, data=dt)
+  IV <- coef(IV_fit)[2]
+  MSE_IV <- mse(truth,IV)
+  IV_low <- IV_fit$conf.low[2]
+  IV_high <- IV_fit$conf.high[2]
+  IV_coverage <- IV_low <= truth & truth <= IV_high
+  
+  out <- data.frame(
+    i = i,
+    truth <- truth,
+    PPE <- PPE,
+    MSE_PPE <- MSE_PPE,
+    PPE_coverage <- PPE_coverage,
+    IV <- IV,
+    MSE_IV <- MSE_IV,
+    IV_coverage <- IV_coverage
+  )
+  return(out)
+  
+}
+
+
+nsim <- 500
+estimates <- data.frame(matrix(ncol = 8, nrow = nsim))
+x <- c("simulation","true_effect","PPE","MSE_PPE","PPE_coverage","IV","MSE_IV","IV_coverage")
+colnames(estimates) <- x
+for (r in 1:nsim) {
+  estimates[r,] <- simfun(i = r)
+  
+}
+truth <- mean(estimates$true_effect)  
+PPE <- mean(estimates$PPE) 
+PPE_bias_24 <- round(truth,2) - round(PPE,2)
+MSE_PPE <- mean(estimates$MSE_PPE)
+PPE_coverage <- mean(estimates$PPE_coverage)
+IV <- mean(estimates$IV) 
+IV_bias_24 <- round(truth,2) - round(IV,2)
+MSE_IV <- mean(estimates$MSE_IV)
+IV_coverage <- mean(estimates$IV_coverage)
+cat("True effect:", round(truth, 2), "\n")
+cat("PP estimate:", round(PPE, 2), "\n")
+cat("PP bias:", PPE_bias_24, "\n")
+cat("MSE PPE:", round(MSE_PPE,3), "\n")
+cat("PPE Coverage:", PPE_coverage, "\n")
+cat("IV estimate:", round(IV, 2), "\n")
+cat("IV bias:", IV_bias_24,"\n")
+cat("MSE IV:", round(MSE_IV,3),"\n")
+cat("IV Coverage:", IV_coverage, "\n")
+```
+
