@@ -5,12 +5,9 @@ date: "2024-08-02"
 output: pdf_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
 
 This document contains the sensitivity simulation analyses employed during the MSc Research Project at the Department of Mathematics of Imperial College of London titled "Estimating the Complier Average Causal Effect in Randomised Controlled Trials with Non-Compliance: A Comparative Simulation Analysis of the Instrumental Variables and Per Protocol Methods" from MSc student Theodosios (Theo) Papazoglou. To replicate the following simulations you can use the code as provided setting the seed equal to 24.
-\par
+
 First we load the libraries used throughout the simulations.
 ```{r}
 library(dplyr)
