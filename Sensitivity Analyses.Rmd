@@ -9,8 +9,9 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-This document contains the sensitivity simulation analyses employed during the MSc Research Project at the Department of Mathematics of Imperial College of London titled "Estimating the Complier Average Causal Effect in Randomised Controlled Trials with Non-Compliance: A Comparative Simulation Analysis of the Instrumental Variables and Per Protocol Methods" from MSc student Theodosios (Theo) Papazoglou. To replicate the following simulations you can use the code as provided setting the seed equal to 24.
-\par
+This document contains the sensitivity simulation analyses employed during the MSc Research Project at the Department of Mathematics of Imperial College of London titled "Estimating the Complier Average Causal Effect in Randomised Controlled Trials with Non-Compliance: A Comparative Simulation Analysis of the Instrumental Variables and Per Protocol Methods" from MSc student Theodosios (Theo) Papazoglou. 
+
+
 First we load the libraries used throughout the simulations.
 ```{r}
 library(dplyr)
@@ -22,7 +23,7 @@ library(reshape2)
 ```
 
 We will begin with all the sensitivity analyses for the Binary Compliance and we'll then proceed to the Partial Compliance case.
-Sensitivity analysis I: Consider mild ($\delta=1$) non-random non-compliance for the dependent scenarios.
+Sensitivity analysis I: Consider mild ($\delta=1$) non-random non-compliance for the dependent scenarios. For this sensitivity analysis we use the random seed that was used in the main simulation analysis as well, i.e. 24.
 
 The following code chunk implements the Non-Random Non-Compliance Scenario A for mild Non-Randomness ($\delta=1$) in the presence of Never-Takers only for the Binary Compliance case when the true treatment effect is equal to $5$. 
 ```{r simulation1}
@@ -882,7 +883,7 @@ cat("MSE IV:", round(MSE_IV,3),"\n")
 cat("IV Coverage:", IV_coverage, "\n")
 ```
 
-Sensitivity analysis II: We consider the treatment effect (ATE) is equal to $0$. We will consider both severe and mild dependent scenarios.
+Sensitivity analysis II: We consider the treatment effect (ATE) is equal to $0$. We will consider both severe and mild dependent scenarios. For this sensitivity analysis we set the random seed equal to 42.
 
 The following code chunk implements the Random Non-Compliance case in the presence of Never-Takers only for the Binary Compliance case when the true treatment effect is equal to $0$. 
 ```{r simulation9}
@@ -2779,7 +2780,7 @@ cat("MSE IV:", round(MSE_IV,3),"\n")
 cat("IV Coverage:", IV_coverage, "\n")
 ```
 
-Sensitivity analysis III: We will consider a different proportion of non-compliers. In the main analysis, we considered $40\%$ of the study participants to be non-compliers. Here, we will assume that $60\%$ of the study participants are non-compliers. In the presence of both never-takers and always-takers we will assume that $40\%$ are never-takers and $20\%$ are always-takers. For the dependent scenarios we will consider both the severe and mild cases. We will only consider this for a treatment effect equal to $5$.
+Sensitivity analysis III: We will consider a different proportion of non-compliers. In the main analysis, we considered $40\%$ of the study participants to be non-compliers. Here, we will assume that $60\%$ of the study participants are non-compliers. In the presence of both never-takers and always-takers we will assume that $40\%$ are never-takers and $20\%$ are always-takers. For the dependent scenarios we will consider both the severe and mild cases. We will only consider this for a treatment effect equal to $5$. For this sensitivity analysis we set the random seed equal to 2424.
 
 The following code chunk implements the Random Non-Compliance case in the presence of Never-Takers only for the Binary Compliance case when the true treatment effect is equal to $5$. 
 ```{r simulation27}
@@ -4676,15 +4677,8 @@ cat("IV Coverage:", IV_coverage, "\n")
 ```
 
 
-For the Partial Compliance we vary the following factors,
-\begin{enumerate}
- \item True Treatment Effect,
- \item Type of Non-Compliers,
- \item Randomness of Non-compliers (For the Non-Random case we consider severe and mild Non-Randomness),
- \item Compliance Threshold 
-\end{enumerate}
-
-Sensitivity analysis IV: Consider mild non-random non-compliance for the dependent scenarios.
+We now move on to the sensitivity analyses for the partial compliance case.
+Sensitivity analysis IV: Consider mild non-random non-compliance for the dependent scenarios. For this sensitivity analysis we consider the same seed as the main analysis, i.e. 24.
 
 The following code chunk implements the Non-Random Non-Compliance Scenario A for mild Non-Randomness ($\delta=1$) in the presence of both Never-Takers and Always-Takers for the Partial Compliance case and Case I for the Threshold when the true treatment effect is equal to $5$. 
 ```{r simulation45}
@@ -5728,7 +5722,7 @@ Sensitivity analysis V: Consider different compliance thresholds. Specifically, 
  \item CASE IV: True compliers are defined as participants who take any part of the CPAP treatment (more than 0 hours)
 \end{enumerate}
 
-Case I was used throughout the main simulation analysis. Now we consider the remaining three. We apply them for both severe and mild non-random non-compliance.
+Case I was used throughout the main simulation analysis. Now we consider the remaining three. We apply them for both severe and mild non-random non-compliance. For this sensitivity analysis we consider the same seed as in the main analysis, i.e. 24.
 
 The following code chunk implements the Random Non-Compliance case in the presence of both Never-Takers and Always-Takers for the Partial Compliance case and Case II for the Threshold when the true treatment effect is equal to $5$. 
 ```{r simulation57}
@@ -12464,7 +12458,7 @@ cat("MSE IV:", round(MSE_IV,3),"\n")
 cat("IV Coverage:", IV_coverage, "\n")
 ```
 
-Sensitivity Analysis VI: We now set the treatment effect (ATE) equal to $0$. We run the analysis for both severe and mild cases of non-randomness and for all 4 cases of compliance threshold.
+Sensitivity Analysis VI: We now set the treatment effect (ATE) equal to $0$. We run the analysis for both severe and mild cases of non-randomness and for all 4 cases of compliance threshold. We use the same seed used for the binary compliance case when the ATE was equal to $0$, i.e. 42.
 
 The following code chunk implements the Random Non-Compliance case in the presence of both Never-Takers and Always-Takers for the Partial Compliance case and Case I for the Threshold when the true treatment effect is equal to $0$. 
 ```{r simulation135}
@@ -21447,6 +21441,7 @@ cat("IV Coverage:", IV_coverage, "\n")
 Simulation analysis VII: Different random proportions.
 For the control group, $60\%$ comply with the control treatment ($D=0$), $10\%$ take CPAP for 2 hours ($D=1/4$), $10\%$ take CPAP for 4 hours ($D=1/2$), $10\%$ take CPAP for 6 hours ($D=3/4$) and $10\%$ take CPAP for 8 hours ($D=1$). 
 For the treatment group, $40\%$ comply with the allocated treatment ($D=1$), $10\%$ take CPAP for 6 hours ($D=3/4$), $10\%$ take CPAP for 4 hours ($D=1/2$), $10\%$ take CPAP for 2 hours ($D=1/4$) and $30\%$ do not take CPAP at all ($D=0$).
+For this sensitivity analysis we use the same random seed used in the binary compliance case with the different proportions, i.e. 2424.
 
 The following code chunk implements the Random Non-Compliance case for the new proportions in the presence of both Never-Takers and Always-Takers for the Partial Compliance case and Case I for the Threshold when the true treatment effect is equal to $5$. 
 ```{r simulation239}
