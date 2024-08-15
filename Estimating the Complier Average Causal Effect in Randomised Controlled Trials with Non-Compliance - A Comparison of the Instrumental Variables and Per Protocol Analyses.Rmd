@@ -21,7 +21,7 @@ library(ggplot2)
 library(reshape2)
 ```
 
-\par
+
 We consider two cases of Compliance, Binary and Partial. When non-compliance is random we use the following proportions to randomly select the subgroups of non-compliers. For the binary compliance case, we consider $40\%$ of the study population to be non-compliers. In the presence of both never-takers and always-takers, this is divided to $25\%$ never-takers ($D(1)=D(0)=0$) and $15\%$ always-takers ($D(1)=D(0)=1$). For the partial compliance case we have, 
 \begin{itemize}
     \item For the control group: $50\%$ comply with their allocated treatment ($D=0$), $20\%$ take CPAP for 2 hours ($D=1/4$), $10\%$ take CPAP for 4 hours ($D=1/2$), $10\%$ take CPAP for 6 hours ($D=3/4$) and $10\%$ take the complete CPAP treatment ($D=1$),
