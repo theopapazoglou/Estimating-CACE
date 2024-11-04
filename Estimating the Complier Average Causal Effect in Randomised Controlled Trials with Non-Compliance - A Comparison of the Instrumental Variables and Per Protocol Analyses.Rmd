@@ -9,7 +9,7 @@ output: pdf_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-This document contains the code used in the main simulation analysis employed during the MSc Research Project at the Department of Mathematics of Imperial College of London titled "Estimating the Complier Average Causal Effect in Randomised Controlled Trials with Non-Compliance: A Comparative Simulation Analysis of the Instrumental Variables and Per Protocol Methods" from MSc student Theodosios (Theo) Papazoglou. To replicate the following simulations you can use the code as provided setting the seed equal to 24.
+This document contains the code used in the main simulation analysis employed at the paper titled "Estimating the Complier Average Causal Effect in Randomised Controlled Trials with Non-Compliance: A Comparative Simulation Analysis of the Instrumental Variables and Per Protocol Methods". To replicate the following simulations you can use the code as provided setting the seed equal to 24.
 
 First we load the libraries used throughout the simulations.
 ```{r}
